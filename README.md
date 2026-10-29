@@ -1,8 +1,8 @@
-![Live MyGo 直播间界面](docs/images/watch-room.png)
+<img src="assets/app-icon.svg" alt="Live MyGo 图标" width="120">
 
 # Live MyGo
 
-**使用 MyGo 原生界面和 libmpv 的 macOS 直播客户端，支持哔哩哔哩和斗鱼。**
+**基于 MyGo 和 libmpv 的 macOS 播放器练手项目，用于学习原生 UI、视频播放和弹幕绘制。**
 
 [下载 v0.4.0-beta.1 测试版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.0-beta.1/LiveMyGo-v0.4.0-beta.1-macos-arm64.dmg) · [ZIP 下载](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.0-beta.1/LiveMyGo-v0.4.0-beta.1-macos-arm64.zip) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.0-beta.1)
 

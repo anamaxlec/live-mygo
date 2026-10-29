@@ -1,0 +1,6 @@
+/build/
+/data/
+/.local/
+*.log
+.DS_Store
+/docs/DOWNBIT-STUDY.md

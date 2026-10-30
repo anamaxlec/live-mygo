@@ -5,6 +5,7 @@ package player
 import (
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -12,46 +13,48 @@ import (
 )
 
 var (
-	videoUser32            = syscall.NewLazyDLL("user32.dll")
-	videoGDI32             = syscall.NewLazyDLL("gdi32.dll")
-	createVideoWindow      = videoUser32.NewProc("CreateWindowExW")
-	moveVideoWindow        = videoUser32.NewProc("SetWindowPos")
-	showVideoWindow        = videoUser32.NewProc("ShowWindow")
-	videoWindowVisible     = videoUser32.NewProc("IsWindowVisible")
-	videoWindowIconic      = videoUser32.NewProc("IsIconic")
-	videoWindowDPI         = videoUser32.NewProc("GetDpiForWindow")
-	findCaptionWindow      = videoUser32.NewProc("FindWindowExW")
-	setVideoRegion         = videoUser32.NewProc("SetWindowRgn")
-	createVideoRoundRegion = videoGDI32.NewProc("CreateRoundRectRgn")
-	createVideoRectRegion  = videoGDI32.NewProc("CreateRectRgn")
-	combineVideoRegion     = videoGDI32.NewProc("CombineRgn")
-	deleteVideoRegion      = videoGDI32.NewProc("DeleteObject")
+	videoUser32        = syscall.NewLazyDLL("user32.dll")
+	videoWindowVisible = videoUser32.NewProc("IsWindowVisible")
+	videoWindowIconic  = videoUser32.NewProc("IsIconic")
+	videoWindowDPI     = videoUser32.NewProc("GetDpiForWindow")
+	videoFindWindowEx  = videoUser32.NewProc("FindWindowExW")
+	videoShowWindow    = videoUser32.NewProc("ShowWindow")
 )
 
-// Windows 使用 mpv 的原生 D3D11 输出；视频子窗口在 MyGo UI 之下。
-// 控件和画面弹幕仍由同一套 MyGo 界面绘制，尺寸更新不等待视频呈现。
+const (
+	maxRenderWidth  = 1920
+	maxRenderHeight = 1080
+	maxFrameBuffers = 4
+)
+
+// Windows 通过 libmpv Render API 的软件输出绘制到内存，再由 MyGo 作为位图合成，
+// 避免 mpv 子窗口被 DirectComposition 层遮挡。
 type Surface struct {
-	view, window, caption      uintptr
-	visible                    atomic.Bool
-	width, height              atomic.Int64
-	resizes                    atomic.Uint64
-	maxResizeNS                atomic.Int64
-	last                       [4]int32
-	radius                     float64
-	roundRight, buttonsVisible bool
+	window           uintptr
+	visible          atomic.Bool
+	dirty            atomic.Bool
+	width, height    atomic.Int64
+	resizes          atomic.Uint64
+	maxResizeNS      atomic.Int64
+	callbacks        atomic.Uint64
+	rendered         atomic.Uint64
+	lastErr          atomic.Pointer[string]
+	wake             chan struct{}
+	onFrame          func()
+	lastW, lastH     int32
+	mu               sync.Mutex
+	free             [][]byte
+	latest           []byte
+	latestW, latestH int
+	latestStride     int
+	buffers          int
 }
 
 func NewSurface(window uintptr) (*Surface, error) {
-	class, _ := syscall.UTF16PtrFromString("Static")
-	view, _, err := createVideoWindow.Call(0, uintptr(unsafe.Pointer(class)), 0, 0x40000000|0x08000000|0x04000000|4, 0, 0, 640, 360, window, 0, 0, 0)
-	if view == 0 {
-		return nil, fmt.Errorf("无法创建 Windows 视频容器：%w", err)
+	if window == 0 {
+		return nil, fmt.Errorf("无法创建 Windows 视频容器：窗口句柄无效")
 	}
-	s := &Surface{view: view, window: window, buttonsVisible: true}
-	caption, _ := syscall.UTF16PtrFromString("MyGoCaption")
-	s.caption, _, _ = findCaptionWindow.Call(window, 0, uintptr(unsafe.Pointer(caption)), 0)
-	moveVideoWindow.Call(view, 1, 0, 0, 640, 360, 0x0010)
-	return s, nil
+	return &Surface{window: window, wake: make(chan struct{}, 1)}, nil
 }
 
 func (s *Surface) scale() float64 {
@@ -63,21 +66,36 @@ func (s *Surface) scale() float64 {
 	return 1
 }
 
-func (s *Surface) SetBounds(x, y, w, h, _ float64) bool {
+// SetFrameCallback 在每帧写入缓冲后调用；回调需可跨协程触发重绘。
+func (s *Surface) SetFrameCallback(cb func()) { s.onFrame = cb }
+
+func (s *Surface) notify() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// SetBounds 将界面尺寸换算成渲染尺寸，按源分辨率上限缩放，避免超采样浪费 CPU。
+func (s *Surface) SetBounds(_ float64, _ float64, w, h, _ float64) bool {
 	scale := s.scale()
-	r := [4]int32{int32(math.Round(x * scale)), int32(math.Round(y * scale)), int32(max(1, math.Round(w*scale))), int32(max(1, math.Round(h*scale)))}
-	if r == s.last {
+	pw, ph := w*scale, h*scale
+	if pw < 1 || ph < 1 {
+		return true
+	}
+	if f := math.Min(1, math.Min(maxRenderWidth/pw, maxRenderHeight/ph)); f < 1 {
+		pw, ph = pw*f, ph*f
+	}
+	tw := max(16, int32(math.Round(pw)))
+	th := max(16, int32(math.Round(ph)))
+	if tw == s.lastW && th == s.lastH {
 		return true
 	}
 	started := time.Now()
-	if ok, _, _ := moveVideoWindow.Call(s.view, 1, uintptr(r[0]), uintptr(r[1]), uintptr(r[2]), uintptr(r[3]), 0x0010); ok == 0 {
-		return false
-	}
-	s.last = r
-	s.width.Store(int64(r[2]))
-	s.height.Store(int64(r[3]))
-	s.updateRegion()
-	s.applyButtons()
+	s.lastW, s.lastH = tw, th
+	s.width.Store(int64(tw))
+	s.height.Store(int64(th))
+	s.dirty.Store(true)
 	s.resizes.Add(1)
 	ns := time.Since(started).Nanoseconds()
 	for old := s.maxResizeNS.Load(); ns > old; old = s.maxResizeNS.Load() {
@@ -85,6 +103,7 @@ func (s *Surface) SetBounds(x, y, w, h, _ float64) bool {
 			break
 		}
 	}
+	s.notify()
 	return true
 }
 
@@ -93,63 +112,121 @@ func (s *Surface) Show(show bool) {
 	iconic, _, _ := videoWindowIconic.Call(s.window)
 	show = show && visible != 0 && iconic == 0
 	if s.visible.Swap(show) != show {
-		state := uintptr(0)
-		if show {
-			state = 4 // SW_SHOWNOACTIVATE
-		}
-		showVideoWindow.Call(s.view, state)
+		s.dirty.Store(true)
+		s.notify()
 	}
 }
 
+// MyGo 在隐藏标题栏时用 MyGoCaption 子窗口绘制系统按钮；它没有公开运行时开关，
+// 小窗模式下直接隐藏这些子窗口。
 func (s *Surface) SetWindowButtonsVisible(visible bool) {
-	s.buttonsVisible = visible
-	s.applyButtons()
-}
-
-func (s *Surface) applyButtons() {
-	if s.caption != 0 {
-		state := uintptr(0)
-		if s.buttonsVisible {
-			state = 4
+	if s.window == 0 || videoFindWindowEx.Find() != nil || videoShowWindow.Find() != nil {
+		return
+	}
+	class, err := syscall.UTF16PtrFromString("MyGoCaption")
+	if err != nil {
+		return
+	}
+	show := uintptr(0) // SW_HIDE
+	if visible {
+		show = 8 // SW_SHOWNA
+	}
+	var after uintptr
+	for {
+		child, _, _ := videoFindWindowEx.Call(s.window, after, uintptr(unsafe.Pointer(class)), 0)
+		if child == 0 {
+			break
 		}
-		showVideoWindow.Call(s.caption, state)
+		videoShowWindow.Call(child, show)
+		after = child
 	}
 }
+func (s *Surface) SetCorners(float64, bool) {}
 
-func (s *Surface) SetCorners(radius float64, right bool) {
-	if s.radius != radius || s.roundRight != right {
-		s.radius, s.roundRight = radius, right
-		s.updateRegion()
-	}
-}
-
-func (s *Surface) updateRegion() {
-	w, h := s.last[2], s.last[3]
-	if w <= 0 || h <= 0 {
-		return
-	}
-	diameter := int32(math.Round(s.radius * s.scale() * 2))
-	if diameter <= 0 {
-		setVideoRegion.Call(s.view, 0, 1)
-		return
-	}
-	region, _, _ := createVideoRoundRegion.Call(0, 0, uintptr(w+1), uintptr(h+1), uintptr(diameter), uintptr(diameter))
-	if region == 0 {
-		return
-	}
-	if !s.roundRight {
-		right, _, _ := createVideoRectRegion.Call(uintptr(max(0, w-diameter)), 0, uintptr(w+1), uintptr(h+1))
-		if right != 0 {
-			combineVideoRegion.Call(region, region, right, 2)
-			deleteVideoRegion.Call(right)
+func (s *Surface) acquire(w, h int) ([]byte, int, bool) {
+	stride := w * 4
+	need := stride * h
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// 窗口启动和适配视频时会连续改变尺寸。旧尺寸缓冲放不进新帧，
+	// 必须释放配额，否则池子被填满后会永远无法分配。
+	kept := s.free[:0]
+	for _, buf := range s.free {
+		if cap(buf) >= need {
+			kept = append(kept, buf)
+		} else {
+			s.buffers--
 		}
 	}
-	if ok, _, _ := setVideoRegion.Call(s.view, region, 1); ok == 0 {
-		deleteVideoRegion.Call(region)
+	s.free = kept
+	if n := len(s.free); n > 0 {
+		buf := s.free[n-1]
+		s.free = s.free[:n-1]
+		return buf[:need], stride, true
 	}
+	if s.buffers >= maxFrameBuffers {
+		return nil, 0, false
+	}
+	s.buffers++
+	return make([]byte, need), stride, true
+}
+
+// TakeFrame 取出最新一帧的所有权；调用方需在绘制后调用 ReleaseFrame。
+func (s *Surface) TakeFrame() ([]byte, int, int, int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.latest == nil {
+		return nil, 0, 0, 0, false
+	}
+	pix, w, h, stride := s.latest, s.latestW, s.latestH, s.latestStride
+	s.latest = nil
+	return pix, w, h, stride, true
+}
+
+func (s *Surface) ReleaseFrame(pix []byte) {
+	if pix == nil {
+		return
+	}
+	s.mu.Lock()
+	s.free = append(s.free, pix)
+	s.mu.Unlock()
+	s.notify()
+}
+
+func (s *Surface) releaseBuffer(pix []byte) {
+	s.ReleaseFrame(pix)
+}
+
+func (s *Surface) publish(pix []byte, w, h, stride int) {
+	s.mu.Lock()
+	if s.latest != nil {
+		s.free = append(s.free, s.latest)
+	}
+	s.latest, s.latestW, s.latestH, s.latestStride = pix, w, h, stride
+	s.mu.Unlock()
+	s.rendered.Add(1)
+	if s.onFrame != nil {
+		s.onFrame()
+	}
+}
+
+func (s *Surface) setRenderError(message string) {
+	s.lastErr.Store(&message)
+}
+
+func (s *Surface) RenderError() string {
+	if message := s.lastErr.Load(); message != nil {
+		return *message
+	}
+	return ""
 }
 
 func (s *Surface) Metrics() RenderMetrics {
-	// D3D11 输出由 mpv 呈现，不能把解码帧数冒充已提交的画面帧数。
-	return RenderMetrics{Resizes: s.resizes.Load(), MaxResizeMS: float64(s.maxResizeNS.Load()) / 1e6, Backend: "mpv-d3d11-window"}
+	return RenderMetrics{
+		Resizes:         s.resizes.Load(),
+		MaxResizeMS:     float64(s.maxResizeNS.Load()) / 1e6,
+		RenderedFrames:  s.rendered.Load(),
+		UpdateCallbacks: s.callbacks.Load(),
+		Backend:         "libmpv-render-sw",
+	}
 }

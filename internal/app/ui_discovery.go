@@ -34,8 +34,10 @@ type discoveryRow struct {
 func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 	p := colors(c.Theme())
 	width, _ := c.Size()
-	available := width - sidebarWidth - contentInset*2 - 1
-	columns := max(1, int((available+20)/256))
+	available := width - a.contentNavWidth() - a.browseLeftInset() - contentInset - 1
+	// 列数按侧栏展开时的宽度计算，收起过程中卡片平滑变宽而不跳列。
+	columnWidth := width - sidebarWidth - a.browseLeftInset() - contentInset - 1
+	columns := max(1, int((columnWidth+20)/256))
 	coverHeight := (available - float32(columns-1)*20) / float32(columns) * 9 / 16
 	rows := []discoveryRow{}
 	seen := map[string]bool{}
@@ -50,33 +52,45 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 			})
 		}})
 	}
-	personal := func(key, title, page string, list []platforms.Room) {
+	personal := func(key, title, page string, list []platforms.Room, large bool) {
 		if len(list) == 0 {
 			return
 		}
 		heading(key+"-heading", title, page)
 		limit := max(1, min(3, int((available+14)/260)))
+		gap, bottom := float32(14), float32(13)
+		if large {
+			gap, bottom = 20, 22
+		}
 		list = list[:min(limit, len(list))]
 		for _, r := range list {
 			seen[roomKey(r)] = true
 		}
 		rows = append(rows, discoveryRow{key, func(c *ui.Context) {
-			ui.Row(c).Gap(14).Padding(0, 0, 13, 0).Children(func() {
+			ui.Row(c).Gap(gap).Padding(0, 0, bottom, 0).Children(func() {
 				for _, r := range list {
-					cardWidth := (available - float32(limit-1)*14) / float32(limit)
-					ui.Column(c.Key(roomKey(r))).Width(cardWidth).MinWidth(0).Children(func() { a.personalRoom(c, r, key == "live") })
+					cardWidth := (available - float32(limit-1)*gap) / float32(limit)
+					ui.Column(c.Key(roomKey(r))).Width(cardWidth).MinWidth(0).Children(func() {
+						if large {
+							// 关注中且正在直播的内容与推荐卡片同级，首页第一眼就能看到。
+							a.roomCard(c, r, cardWidth*9/16)
+							return
+						}
+						a.personalRoom(c, r, false)
+					})
 				}
 			})
 		}})
 	}
 	live := []platforms.Room{}
 	if a.page == "home" {
+		// favoriteRooms 会用本次刷新的状态覆盖收藏；刷新尚未完成时仍可用上次保存的开播状态。
 		for _, r := range a.favoriteRooms() {
-			if fresh, ok := a.libraryRooms[roomKey(r)]; ok && fresh.Live {
-				live = append(live, fresh)
+			if r.Live {
+				live = append(live, r)
 			}
 		}
-		personal("live", "关注正在直播", "favorites", live)
+		personal("live", "关注正在直播", "favorites", live, true)
 		if a.library != nil {
 			recent := []platforms.Room{}
 			for _, r := range a.library.History {
@@ -84,7 +98,7 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 					recent = append(recent, r)
 				}
 			}
-			personal("recent", "最近观看", "history", recent)
+			personal("recent", "最近观看", "history", recent, false)
 		}
 	}
 	recommended := rooms
@@ -151,12 +165,12 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 	a.grid.Key = func(i int) any { return rows[i].key }
 	// 元信息晚于首页到达时，保持滚动位置，不能把新插入的关注分组藏在视口上方。
 	a.grid.KeepOffset = true
-	ui.List(c.Key("discovery"), &a.grid, len(rows), func(i int) { rows[i].build(c) }).Grow(1).MinHeight(0).Padding(0, contentInset, 20, contentInset)
+	ui.List(c.Key("discovery"), &a.grid, len(rows), func(i int) { rows[i].build(c) }).Grow(1).MinHeight(0).Padding(0, contentInset, 20, a.browseLeftInset())
 }
 
 func (a *app) personalRoom(c *ui.Context, r platforms.Room, live bool) {
 	p := colors(c.Theme())
-	b := ui.ButtonBase(c).FillWidth().Height(86).Padding(10).Gap(10).AlignItems(ui.Center).Radius(10).Border(1, p.line).Background(p.bg).Label("打开 " + r.Anchor + " " + r.Title).Tooltip(r.Title).Disabled(a.player == nil)
+	b := ui.ButtonBase(c).FillWidth().Height(86).Padding(10).Gap(10).AlignItems(ui.Center).Radius(10).Border(1, p.line).Background(p.bg).Label("打开 " + r.Anchor + " " + r.Title).Disabled(a.player == nil)
 	if b.Hovered() {
 		b.Background(p.hover)
 	}
@@ -183,7 +197,7 @@ func (a *app) featuredRoom(c *ui.Context, r platforms.Room, width float32) {
 	coverWidth := min(float32(330), width*.47)
 	height := coverWidth * 9 / 16
 	ui.Box(c).Padding(0, 0, 22, 0).Children(func() {
-		b := ui.ButtonBase(c).FillWidth().Height(height).Gap(22).AlignItems(ui.Center).Radius(12).Background(p.soft).Clip().Label("精选直播 " + r.Anchor + " " + r.Title).Tooltip(r.Title).Disabled(a.player == nil)
+		b := ui.ButtonBase(c).FillWidth().Height(height).Gap(22).AlignItems(ui.Center).Radius(12).Background(p.soft).Clip().Label("精选直播 " + r.Anchor + " " + r.Title).Disabled(a.player == nil)
 		b.Children(func() {
 			ui.Box(c).Width(coverWidth).Height(height).Shrink(0).Clip().Children(func() { a.coverImage(c, r.Cover, 0); sourceBadge(c, r.Platform, false) })
 			ui.Column(c).Grow(1).MinWidth(0).Padding(16, 20, 16, 0).Gap(10).Children(func() {

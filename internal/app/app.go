@@ -34,10 +34,14 @@ type app struct {
 	sleepTimer      *time.Timer
 	sleepUntil      time.Time
 	chatResizing    bool
+	chatDragPx      float32
+	chatDragWidth   float32
 
 	win                                    *mygo.Window
 	surface                                *player.Surface
 	player                                 *player.Player
+	videoBitmap                            *ui.Bitmap
+	videoPix                               []byte
 	playerOps                              chan func(*player.Player)
 	vault                                  *accounts.Vault
 	client                                 *platforms.Client
@@ -230,6 +234,7 @@ func (a *app) start() {
 		if !a.companion && !a.win.IsFullScreen() {
 			a.win.SetTitle(a.win.Title())
 		}
+		a.refreshFavorites(false)
 	})
 	a.win.OnMinimize(func() {
 		a.minimized = true
@@ -244,10 +249,16 @@ func (a *app) start() {
 	})
 	a.win.OnLeaveFullScreen(func() { a.fitWindowToVideo(true) })
 	a.win.OnClose(func(e *mygo.CloseEvent) {
-		if !a.clean {
-			e.PreventDefault()
-			a.quit()
+		if a.closing || a.clean {
+			return
 		}
+		e.PreventDefault()
+		if a.companion {
+			// 小窗的关闭按钮只退出小窗，不应结束整个应用。
+			a.toggleCompanion()
+			return
+		}
+		a.quit()
 	})
 	s, err := player.NewSurface(a.win.NativeHandle())
 	if err != nil {
@@ -257,6 +268,7 @@ func (a *app) start() {
 		return
 	}
 	a.surface = s
+	s.SetFrameCallback(a.win.Invalidate)
 	go a.runPlayer(s)
 	a.refreshAccountStatus()
 	if a.opts.file == "" && a.opts.room == "" {
@@ -395,8 +407,20 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 	gen := a.generation
 	a.busy = true
 	a.status = "正在解析" + p.Name() + "直播间"
+	preference := platforms.QualityHighest
+	if a.library != nil {
+		preference = platforms.NormalizeQualityPreference(a.library.Preferences.DefaultQuality)
+	}
 	go func() {
 		s, err := a.client.Resolve(ctx, p, id, quality, route...)
+		if err == nil && quality < 0 {
+			if preferred, ok := platforms.PreferredQuality(s.Qualities, preference); ok && preferred != s.QualityID {
+				// 平台默认档位不代表偏好档位，按偏好再取一次；平台拒绝时保留第一次结果。
+				if next, retryErr := a.client.Resolve(ctx, p, id, preferred, route...); retryErr == nil {
+					s = next
+				}
+			}
+		}
 		a.win.Update(func() {
 			if gen != a.generation || a.closing {
 				return
@@ -466,6 +490,13 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 					if q.ID == s.QualityID {
 						a.qualityLabel = q.Name
 					}
+				}
+				if quality >= 0 && s.QualityID != quality {
+					actual := a.qualityLabel
+					if actual == "" {
+						actual = "可用清晰度"
+					}
+					a.toast = "所选清晰度暂不可用，已切换到" + actual
 				}
 				a.shown = true
 				a.stats = player.Stats{}

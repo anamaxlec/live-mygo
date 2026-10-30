@@ -102,17 +102,26 @@ func (a *app) chatWidth(c *ui.Context) float32 {
 }
 func (a *app) chatResizeHandle(c *ui.Context, width, edge float32) {
 	grip := ui.Box(c.Key("chat-resize")).Absolute().Top(edge).Bottom(edge).Right(width + edge - 4).Width(8).Cursor(ui.CursorResizeEW).Label("调整弹幕栏宽度")
-	if dx, _, ok := grip.Dragged(); ok && dx != 0 && a.library != nil {
-		next := a.library.Preferences
-		next.ChatWidth = float64(max(240, min(560, width-dx)))
-		a.previewPreferences(next)
-		a.chatResizing = true
-	}
-	if a.chatResizing && !grip.Dragging() {
+	_, _, pressed := grip.Dragged()
+	if pressed && a.library != nil {
+		// 拖动时分隔条本身会跟着宽度移动，不能用逐帧 dx 累加；
+		// 以按下时的指针位置为基准计算绝对位移，否则手一停就再也拖不动。
+		px, _, _ := grip.PointerPosition()
+		if !a.chatResizing {
+			a.chatResizing = true
+			a.chatDragPx, a.chatDragWidth = px, width
+		}
+		target := float32(max(240, min(560, a.chatDragWidth+a.chatDragPx-px)))
+		if target != float32(a.library.Preferences.ChatWidth) {
+			next := a.library.Preferences
+			next.ChatWidth = float64(target)
+			a.previewPreferences(next)
+		}
+	} else if a.chatResizing {
 		a.chatResizing = false
 		a.fitWindowToVideo(true)
 	}
-	if grip.Hovered() || grip.Dragging() {
+	if grip.Hovered() || a.chatResizing {
 		grip.Background(colors(c.Theme()).line)
 	}
 }
@@ -180,9 +189,6 @@ func (a *app) toggleCompanion() {
 	}
 	a.companion = !a.companion
 	a.win.SetAlwaysOnTop(a.companion)
-	if a.surface != nil {
-		a.surface.SetWindowButtonsVisible(!a.companion)
-	}
 	if a.companion {
 		a.companionBounds = a.win.ContentBounds()
 		a.page = "player"
@@ -202,6 +208,10 @@ func (a *app) toggleCompanion() {
 				a.win.SetTitle(a.win.Title())
 			}
 		})
+	}
+	if a.surface != nil {
+		// 放在窗口尺寸变化之后，避免 MyGo 重新布局标题栏时又把按钮显示出来。
+		a.surface.SetWindowButtonsVisible(!a.companion)
 	}
 	if a.companion {
 		a.controlsUntil = time.Time{}

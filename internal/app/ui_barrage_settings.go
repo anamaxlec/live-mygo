@@ -25,9 +25,7 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 	if !expanded {
 		ui.Row(c).Padding(4, 3, 10, 3).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "弹幕与画面").FontSize(13).FontWeight(600).TextColor(p.text).Grow(1)
-			if ui.Button(c, "推荐样式").FontSize(10.5).Height(25).Clicked() {
-				a.restoreCaptionStyle()
-			}
+			a.recommendedStyleButton(c)
 		})
 	}
 
@@ -35,11 +33,15 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 		return
 	}
 	prefs := a.library.Preferences
-	ui.Row(c).Gap(5).Padding(0, 0, 8, 0).Children(func() {
+	ui.Row(c).Gap(5).Padding(0, 0, 8, 0).AlignItems(ui.Center).Children(func() {
 		for i, label := range []string{"样式", "布局", "屏蔽"} {
 			if filterButton(c.Key(i), label, a.danmakuTab == i).Clicked() {
 				a.danmakuTab = i
 			}
+		}
+		if expanded {
+			ui.Box(c).Grow(1)
+			a.recommendedStyleButton(c)
 		}
 	})
 	ui.Column(c.Key("barrage-tab-content")).FillWidth().Clip().Children(func() {
@@ -150,6 +152,27 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 			}
 		})
 	})
+}
+
+// recommendedStyleButton 是次要操作，跟随内容列右缘而不是占用页面标题栏。
+func (a *app) recommendedStyleButton(c *ui.Context) {
+	p := colors(c.Theme())
+	b := ui.ButtonBase(c.Key("recommended-caption-style")).Height(28).PaddingX(9).Radius(7).Gap(6).AlignItems(ui.Center).Label("推荐样式")
+	hovered := b.Hovered() || b.FocusVisible()
+	if hovered {
+		b.Background(p.hover)
+	}
+	ink := p.muted
+	if hovered {
+		ink = p.text
+	}
+	b.Children(func() {
+		ui.Icon(c, iconRefresh).Size(13, 13).TextColor(ink)
+		ui.Text(c, "推荐样式").FontSize(11.5).FontWeight(500).TextColor(ink)
+	})
+	if b.Clicked() {
+		a.restoreCaptionStyle()
+	}
 }
 
 func (a *app) restoreCaptionStyle() {

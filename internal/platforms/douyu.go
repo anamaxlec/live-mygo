@@ -32,6 +32,9 @@ func (c *Client) douyu(ctx context.Context, id string, quality int, route ...str
 		} `json:"room"`
 	}
 	if err := c.request(ctx, Douyu, http.MethodGet, "https://www.douyu.com/betard/"+id, ref, nil, &detail); err != nil {
+		if strings.Contains(err.Error(), "无法解析的数据") {
+			return nil, errors.New("斗鱼直播间当前未开播、已关闭或被平台限制")
+		}
 		return nil, err
 	}
 	if detail.Room.ID == "" {
@@ -65,15 +68,16 @@ func (c *Client) douyu(ctx context.Context, id string, quality int, route ...str
 	if err != nil {
 		return nil, errors.New("斗鱼签名结果格式异常")
 	}
-	if quality < 0 {
-		quality = 0
-	}
 	cdn := ""
 	if len(route) > 0 {
 		cdn = route[0]
 	}
-	for k, v := range map[string]string{"cdn": cdn, "rate": strconv.Itoa(quality), "ver": "Douyu_223061205", "iar": "1", "ive": "1", "hevc": "0", "fa": "0"} {
-		form.Set(k, v)
+	// 只带签名和 rate。iar/ive 等自动画质参数会让服务端忽略所选清晰度，
+	// 表现为列表里怎么点都停在 540p。
+	form.Set("rate", strconv.Itoa(quality))
+	form.Set("ver", "Douyu_224011102")
+	if cdn != "" {
+		form.Set("cdn", cdn)
 	}
 	var play struct {
 		Error int `json:"error"`

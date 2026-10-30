@@ -81,6 +81,12 @@ func New(surface *Surface) (*Player, error) {
 		return nil, errors.New("无法创建 libmpv 播放器")
 	}
 	opts := [][2]string{{"config", "no"}, {"terminal", "no"}, {"msg-level", "all=no"}, {"input-default-bindings", "no"}, {"input-media-keys", "no"}, {"osc", "no"}, {"hwdec", "auto-safe"}, {"volume", "60"}, {"cache", "yes"}, {"cache-secs", "2"}, {"demuxer-readahead-secs", "2"}, {"demuxer-max-bytes", "32MiB"}}
+	if logPath := os.Getenv("LIVE_MYGO_MPV_LOG"); logPath != "" {
+		opts = append(opts, [2]string{"log-file", logPath}, [2]string{"msg-level", "all=v"})
+	}
+	if os.Getenv("LIVE_MYGO_QA_LOOP") != "" {
+		opts = append(opts, [2]string{"loop-file", "inf"})
+	}
 	opts = append(opts, [2]string{"tls-verify", "yes"})
 	if executable, err := os.Executable(); err == nil {
 		for _, certificate := range []string{filepath.Join(filepath.Dir(executable), "../Resources/cacert.pem"), filepath.Join(filepath.Dir(executable), "cacert.pem")} {
@@ -217,6 +223,9 @@ func (p *Player) Stats() Stats {
 	stats := Stats{Position: num("time-pos"), Width: int(num("video-params/w")), Height: int(num("video-params/h")), FPS: num("container-fps"), Hardware: get("hwdec-current"), VideoCodec: get("video-codec"), AudioCodec: get("audio-codec-name"), AVSync: num("avsync"), Dropped: int(num("frame-drop-count")), Paused: get("pause") == "yes", Muted: get("mute") == "yes", Idle: get("idle-active") == "yes", Error: p.lastErr}
 	if p.renderer != nil {
 		stats.Visible = p.renderer.surface.visible.Load()
+		if stats.Error == "" {
+			stats.Error = p.renderer.surface.RenderError()
+		}
 	}
 	if stats.Width > 0 && stats.Height > 0 {
 		p.barrage.VideoAspect = float64(stats.Width) / float64(stats.Height)

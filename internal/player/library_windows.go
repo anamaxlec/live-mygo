@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"unsafe"
 )
@@ -47,6 +46,6 @@ func librarySymbol(lib uintptr, name string) (uintptr, error) {
 	return syscall.GetProcAddress(syscall.Handle(lib), name)
 }
 
-func surfaceOptions(s *Surface) [][2]string {
-	return [][2]string{{"vo", "gpu"}, {"gpu-api", "d3d11"}, {"gpu-context", "d3d11"}, {"wid", strconv.FormatUint(uint64(s.view), 10)}, {"input-vo-keyboard", "no"}, {"input-cursor", "no"}}
+func surfaceOptions(*Surface) [][2]string {
+	return [][2]string{{"vo", "libmpv"}}
 }

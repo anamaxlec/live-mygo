@@ -201,3 +201,8 @@ func (s *Surface) notify() {
 func (s *Surface) Metrics() RenderMetrics {
 	return RenderMetrics{Resizes: s.resizes.Load(), DeferredResizes: s.deferred.Load(), MaxResizeMS: float64(s.maxResizeNS.Load()) / 1e6, RenderedFrames: s.rendered.Load(), UpdateCallbacks: s.callbacks.Load(), Backend: "libmpv-render-opengl"}
 }
+
+func (s *Surface) RenderError() string { return "" }
+
+// Windows 的软件输出用回调驱动重绘；macOS 的原生视图自行提交帧。
+func (s *Surface) SetFrameCallback(func()) {}

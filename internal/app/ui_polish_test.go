@@ -23,13 +23,18 @@ func TestDiscoverySeparatesFamiliarRoomsAndRecommendations(t *testing.T) {
 	old := platforms.Room{Platform: platforms.Douyu, ID: "2", Title: "历史直播", Anchor: "历史主播"}
 	a.library.Favorites = []platforms.Room{fav}
 	a.library.History = []platforms.Room{old}
-	a.libraryRooms = map[string]platforms.Room{roomKey(fav): fav}
+	// 刷新尚未完成时也要按收藏里保存的开播状态优先展示。
 	a.catalog = []platforms.Room{{Platform: platforms.Bilibili, ID: "3", Title: "推荐直播", Anchor: "推荐主播", Live: true}}
 	tester := ui.NewTester(a.view, 1180, 920)
-	for _, label := range []string{"关注正在直播", "最近观看", "为你推荐", "打开 关注主播 关注直播", "打开 历史主播 历史直播", "播放 推荐主播 推荐直播"} {
+	for _, label := range []string{"关注正在直播", "最近观看", "为你推荐", "播放 关注主播 关注直播", "打开 历史主播 历史直播", "播放 推荐主播 推荐直播"} {
 		if _, ok := tester.Find(label); !ok {
 			t.Fatalf("缺少分组或操作 %q", label)
 		}
+	}
+	liveHeading, _ := tester.Find("关注正在直播")
+	recommendHeading, _ := tester.Find("为你推荐")
+	if liveHeading.Y >= recommendHeading.Y {
+		t.Fatal("关注正在直播没有排在推荐之前")
 	}
 	if err := tester.Click("查看全部最近观看"); err != nil {
 		t.Fatal(err)
@@ -70,10 +75,10 @@ func TestDiscoveryShowsLiveGroupWhenMetadataArrives(t *testing.T) {
 	a.libraryRooms = map[string]platforms.Room{roomKey(fav): fav}
 	tester.Frame()
 	tester.Frame()
-	live, ok := tester.Find("打开 关注主播 关注直播")
+	live, ok := tester.Find("播放 关注主播 关注直播")
 	heading, headingOK := tester.Find("关注正在直播")
-	if !ok || !headingOK || live.Y < heading.Y+heading.H || live.W > 310 {
-		t.Fatalf("异步关注分组不应藏到视口上方，卡片也不应撑满整行：%+v", live)
+	if !ok || !headingOK || live.Y < heading.Y+heading.H || live.W > 310 || live.H < 150 {
+		t.Fatalf("异步关注分组不应藏到视口上方，卡片应与推荐卡同级且不撑满整行：%+v", live)
 	}
 }
 func TestCompactChatUsesLessSpaceAndKeepsSuperChatEmphasis(t *testing.T) {
@@ -168,5 +173,34 @@ func TestRecommendedCaptionStyleDoesNotResetOtherPreferences(t *testing.T) {
 	p := a.library.Preferences
 	if p.DanmakuSize != 24 || p.DanmakuWeight != 500 || p.DanmakuLines != 4 || !p.DanmakuMerge || !p.ChatCompact {
 		t.Fatal("推荐样式没有正确应用或覆盖了无关偏好")
+	}
+}
+
+func TestRoomCardsDoNotShowDuplicateTitleTooltip(t *testing.T) {
+	a := polishApp(t)
+	a.page = "home"
+	featured := platforms.Room{Platform: platforms.Bilibili, ID: "7", Title: "精选直播测试标题", Anchor: "精选主播", Live: true}
+	card := platforms.Room{Platform: platforms.Bilibili, ID: "8", Title: "推荐卡片测试标题", Anchor: "推荐主播", Live: true}
+	a.catalog = []platforms.Room{featured, card}
+	tester := ui.NewTester(a.view, 1180, 920)
+	for _, target := range []struct{ label, title string }{
+		{"精选直播 " + featured.Anchor + " " + featured.Title, featured.Title},
+		{"播放 " + card.Anchor + " " + card.Title, card.Title},
+	} {
+		rect, ok := tester.Find(target.label)
+		if !ok {
+			t.Fatalf("缺少卡片 %q：%v", target.label, tester.Texts())
+		}
+		tester.Move(rect.X+rect.W/2, rect.Y+rect.H/2)
+		tester.Advance(800 * time.Millisecond)
+		count := 0
+		for _, text := range tester.Texts() {
+			if text == target.title {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("卡片标题在悬停时出现了 %d 次，可能仍有重复标题提示：%v", count, tester.Texts())
+		}
 	}
 }

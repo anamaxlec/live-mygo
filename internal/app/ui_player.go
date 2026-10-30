@@ -5,6 +5,7 @@ package app
 import (
 	"fmt"
 	"live-mygo/internal/platforms"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -133,14 +134,21 @@ func (a *app) watchChrome(c *ui.Context) ui.Color {
 func (a *app) watchHeader(c *ui.Context) {
 	p := colors(c.Theme())
 	sidebar := sidebarWidth
-	if a.focusMode {
+	if a.focusMode && !a.navMeasured {
 		sidebar = 0
 	}
 	if a.navMeasured {
 		sidebar = a.navWidth
 	}
 	const navigationWidth, titleGap float32 = 65, 12
-	inset := max(titlebarLeft(c), sidebar+watchFrameInset+watchFrameBorder-navigationWidth-titleGap)
+	titleEdge := sidebar + watchFrameInset + watchFrameBorder
+	inset := max(titlebarLeft(c), titleEdge-navigationWidth-titleGap)
+	gap := titleGap
+	if runtime.GOOS == "windows" {
+		// 没有红绿灯占用左上角，导航按钮从左边缘开始；标题仍对齐播放器左边线。
+		inset = titlebarLeft(c)
+		gap = max(titleGap, titleEdge-inset-navigationWidth)
+	}
 	ui.Row(c).FillWidth().Height(watchHeaderHeight).Shrink(0).Padding(0, titlebarRight(c, 16), 0, inset).AlignItems(ui.Center).Background(a.watchChrome(c)).DragWindow().Children(func() {
 		ui.Row(c).Width(navigationWidth).Shrink(0).Gap(5).AlignItems(ui.Center).Children(func() {
 			if iconButton(c.Key("watch-back"), iconBack, "返回列表 · Esc").Clicked() {
@@ -151,9 +159,9 @@ func (a *app) watchHeader(c *ui.Context) {
 				a.fitWindowToVideo(false)
 			}
 		})
-		ui.Box(c).Width(titleGap).Shrink(0)
+		ui.Box(c).Width(gap).Shrink(0)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-			ui.Text(c, a.title).FontSize(13.5).FontWeight(600).TextColor(p.text).SingleLine().Tooltip(a.title)
+			ui.Text(c, a.title).FontSize(13.5).FontWeight(600).TextColor(p.text).SingleLine()
 			var meta []string
 			for _, text := range []string{a.targetRoom.Platform.Name(), a.targetRoom.Anchor, a.targetRoom.Category} {
 				if text != "" {
@@ -201,8 +209,9 @@ func (a *app) watchHeader(c *ui.Context) {
 }
 
 func (a *app) videoView(c *ui.Context, frame ui.Rect) {
+	a.takeVideoFrame()
 	video := ui.Box(c.Key("video")).Width(frame.W).FillHeight().Shrink(0).MinHeight(0).Role(ui.RoleGroup).Focusable().FocusRing(false).Bind(&a.transportHandle).Label("直播画面，双击切换全屏")
-	if !a.shown {
+	if runtime.GOOS == "windows" || !a.shown {
 		video.Background(ui.Hex("#0b0b0e"))
 	}
 	width := frame.W
@@ -244,6 +253,9 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 		}
 	}
 	video.Children(func() {
+		if a.videoBitmap != nil {
+			ui.Image(c, a.videoBitmap).Absolute().Left(0).Top(0).Width(frame.W).Height(frame.H).Fit(ui.FillBox).Role(ui.RoleNone).PassThrough()
+		}
 		a.barrageView(c, frame.W, frame.H)
 		if a.companion {
 			a.companionHeader(c, opacity)
@@ -541,11 +553,18 @@ func (a *app) qualitySelector(c *ui.Context) {
 		if a.stream == nil {
 			return
 		}
-		for _, q := range a.stream.Qualities {
-			if popupChoice(c.Key(q.ID), q.Name, "", q.ID == a.stream.QualityID).Clicked() {
-				a.qualityOpen = false
-				a.resolve(a.stream.Room.Platform, a.stream.Room.ID, q.ID, a.stream.SourceID)
-			}
+		ui.Scroll(c).MaxHeight(340).Children(func() {
+			ui.Column(c).Gap(2).Children(func() {
+				for _, q := range a.stream.Qualities {
+					if popupChoice(c.Key(q.ID), q.Name, "", q.ID == a.stream.QualityID).Clicked() {
+						a.qualityOpen = false
+						a.resolve(a.stream.Room.Platform, a.stream.Room.ID, q.ID, a.stream.SourceID)
+					}
+				}
+			})
+		})
+		if a.stream.Room.Platform == platforms.Douyu && !strings.HasPrefix(a.accountStatus[platforms.Douyu], "已保存") {
+			ui.Text(c, "部分高码率档位由平台按账号权限提供；未登录斗鱼时可能自动降档。").FontSize(10.5).TextColor(p.muted).MaxLines(3).Padding(8, 9)
 		}
 	})
 }

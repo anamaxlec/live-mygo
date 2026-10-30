@@ -5,6 +5,7 @@ package app
 import (
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/platforms"
+	"math"
 	"testing"
 	"time"
 )
@@ -90,10 +91,20 @@ func TestCategorizedSettingsExposeExistingPreferences(t *testing.T) {
 	if err := tester.Click("设置分类：播放"); err != nil {
 		t.Fatal(err)
 	}
-	for _, label := range []string{"窗口跟随画面比例", "斗鱼弹幕兼容连接", "离开直播间时暂停"} {
+	for _, label := range []string{"默认画质", "窗口跟随画面比例", "斗鱼弹幕兼容连接", "离开直播间时暂停"} {
 		if _, ok := tester.Find(label); !ok {
 			t.Fatal("缺少播放设置", label)
 		}
+	}
+	if err := tester.Click(defaultQualityLabel(platforms.QualityHighest)); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("高清"); err != nil {
+		t.Fatal(err)
+	}
+	if a.library.Preferences.DefaultQuality != platforms.QualityHigh {
+		t.Fatalf("默认画质未写入偏好：%q", a.library.Preferences.DefaultQuality)
 	}
 	if err := tester.Click("设置分类：画面弹幕"); err != nil {
 		t.Fatal(err)
@@ -102,6 +113,11 @@ func TestCategorizedSettingsExposeExistingPreferences(t *testing.T) {
 		if _, ok := tester.Find(label); !ok {
 			t.Fatal("缺少完整弹幕设置", label)
 		}
+	}
+	section, ok := tester.Find("布局")
+	restore, found := tester.Find("推荐样式")
+	if !ok || !found || math.Abs(float64(restore.Y+restore.H/2-section.Y-section.H/2)) > .5 || restore.X <= section.X {
+		t.Fatalf("推荐样式没有和分区标签同排靠右：section=%+v restore=%+v", section, restore)
 	}
 	if err := tester.Click("设置分类：弹幕列表"); err != nil {
 		t.Fatal(err)

@@ -4,12 +4,37 @@ package app
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/platforms"
 )
+
+func (a *app) contentNavWidth() float32 {
+	if !a.navMeasured {
+		if a.focusMode {
+			return 0
+		}
+		return sidebarWidth
+	}
+	return a.navWidth
+}
+
+func (a *app) browseLeftInset() float32 {
+	if runtime.GOOS != "windows" {
+		return contentInset
+	}
+	if !a.navMeasured {
+		if a.focusMode {
+			return 54
+		}
+		return contentInset
+	}
+	// 侧栏收起时给左上角开关让出 54 DIP，标题、分区和卡片共用这条左边线。
+	return max(contentInset, 54-a.navWidth)
+}
 
 func (a *app) browseView(c *ui.Context) {
 	p := colors(c.Theme())
@@ -42,18 +67,22 @@ func (a *app) browseView(c *ui.Context) {
 		title = "“" + a.catalogQuery + "”"
 	}
 	ui.Column(c).Fill().Children(func() {
-		ui.Row(c).Height(84).Padding(18, titlebarRight(c, contentInset), 10, contentInset).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
+		left := a.browseLeftInset()
+		headerHeight, topPad, bottomPad := float32(84), float32(18), float32(10)
+		if runtime.GOOS == "windows" {
+			// 与播放页顶栏、左上角侧栏开关共用 58 DIP 中线。
+			headerHeight, topPad, bottomPad = watchHeaderHeight, 0, 0
+		}
+		ui.Row(c).Height(headerHeight).Padding(topPad, titlebarRight(c, contentInset), bottomPad, left).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
+			if a.catalogQuery != "" {
+				backButton(c, "end-search", "返回", "返回浏览", a.leaveSearch)
+			}
 			ui.Text(c, title).FontSize(23).FontWeight(650).TextColor(p.text).SingleLine().Grow(1).MinWidth(0)
 			if local && len(rooms) > 0 {
 				ui.Textf(c, "%d 个直播间", len(rooms)).FontSize(12).TextColor(p.muted)
 			}
 			if a.page == "favorites" {
-				if a.libraryRefreshing {
-					ui.Spinner(c).Size(14, 14)
-				}
-				if iconButton(c.Key("refresh-favorites"), iconRefresh, shortcutLabel("刷新开播状态 · ⌘R")).Disabled(a.libraryRefreshing || len(rooms) == 0).Clicked() {
-					a.refreshFavorites(true)
-				}
+				refreshButton(c, "refresh-favorites", "刷新开播状态", a.libraryRefreshing, a.libraryRefreshing || len(rooms) == 0, func() { a.refreshFavorites(true) })
 			}
 			if !local {
 				if a.catalogQuery != "" {
@@ -62,16 +91,8 @@ func (a *app) browseView(c *ui.Context) {
 						a.grid = ui.ListState{}
 						a.loadCatalog(1)
 					}
-					if iconButton(c.Key("end-search"), iconClose, "结束搜索").Clicked() {
-						a.clearSearch()
-					}
 				}
-				if a.catalogLoading {
-					ui.Spinner(c).Size(14, 14)
-				}
-				if iconButton(c.Key("refresh"), iconRefresh, shortcutLabel("刷新 · ⌘R")).Disabled(a.catalogLoading).Clicked() {
-					a.loadCatalog(1)
-				}
+				refreshButton(c, "refresh", "刷新", a.catalogLoading, a.catalogLoading, func() { a.loadCatalog(1) })
 			}
 		})
 		if !local && a.page == string(platforms.FLive) {
@@ -79,7 +100,7 @@ func (a *app) browseView(c *ui.Context) {
 			return
 		}
 		if local {
-			ui.Row(c).Height(30).Margin(0, contentInset, 20, contentInset).Gap(5).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Height(30).Margin(0, contentInset, 20, a.browseLeftInset()-filterTabPad).Gap(5).AlignItems(ui.Center).Children(func() {
 				for _, source := range append([]platforms.Platform{""}, a.sourcePlatforms()...) {
 					id, label := string(source), "全部"
 					if source != "" {
@@ -124,15 +145,69 @@ func (a *app) browseView(c *ui.Context) {
 			return
 		}
 		if !local && a.catalogError != "" {
-			ui.Text(c, a.catalogError).FontSize(12).TextColor(p.danger).Margin(0, contentInset, 14, contentInset)
+			ui.Text(c, a.catalogError).FontSize(12).TextColor(p.danger).Margin(0, contentInset, 14, a.browseLeftInset())
 		}
 		a.roomGrid(c, rooms, false, !local && a.catalogMore)
 	})
 }
 
+// refreshButton 用图标加文字说明操作对象，避免顶栏只浮着一个刷新图标。
+func refreshButton(c *ui.Context, key, label string, loading, disabled bool, action func()) {
+	p := colors(c.Theme())
+	b := ui.ButtonBase(c.Key(key)).Height(28).PaddingX(9).Radius(7).Gap(6).AlignItems(ui.Center).Label(label).Tooltip(shortcutLabel(label + " · ⌘R")).Disabled(disabled)
+	bg := ui.Transparent
+	if b.Hovered() && !disabled {
+		bg = p.hover
+	}
+	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
+	ink := p.muted
+	if b.Hovered() && !disabled {
+		ink = p.text
+	}
+	b.Children(func() {
+		ui.Box(c).Size(14, 14).Center().Children(func() {
+			if loading {
+				ui.Spinner(c).Size(12, 12)
+			} else {
+				ui.Icon(c, iconRefresh).Size(14, 14).TextColor(ink)
+			}
+		})
+		ui.Text(c, "刷新").FontSize(11.5).FontWeight(500).TextColor(ink)
+	})
+	if b.Clicked() && !disabled {
+		action()
+	}
+}
+
+// backButton 给搜索结果的标题栏一个明确的返回入口，不再只留一个无文字的 ×。
+func backButton(c *ui.Context, key, label, tooltip string, action func()) {
+	p := colors(c.Theme())
+	b := ui.ButtonBase(c.Key(key)).Height(28).PaddingX(8).Radius(7).Gap(5).AlignItems(ui.Center).Label(label).Tooltip(tooltip)
+	bg := ui.Transparent
+	if b.Hovered() {
+		bg = p.hover
+	}
+	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
+	ink := p.muted
+	if b.Hovered() {
+		ink = p.text
+	}
+	b.Children(func() {
+		ui.Icon(c, iconBack).Size(14, 14).TextColor(ink)
+		ui.Text(c, label).FontSize(11.5).FontWeight(500).TextColor(ink)
+	})
+	if b.Clicked() {
+		action()
+	}
+}
+
+// filterTabPad 是分区胶囊的横向内边距；分区栏整体左移同样的距离，
+// 让首个标签的文字与标题、分组标题落在同一条左边线上。
+const filterTabPad float32 = 11
+
 func filterButton(c *ui.Context, label string, selected bool, dropdown ...bool) ui.Element {
 	p := colors(c.Theme())
-	b := ui.ButtonBase(c).Height(28).PaddingX(11).Radius(7).Gap(5).Label(label)
+	b := ui.ButtonBase(c).Height(28).PaddingX(filterTabPad).Radius(7).Gap(5).Label(label)
 	bg, ink := ui.Transparent, p.muted
 	if selected {
 		bg, ink = p.selected, p.text
@@ -152,7 +227,7 @@ func filterButton(c *ui.Context, label string, selected bool, dropdown ...bool) 
 func (a *app) categoryBar(c *ui.Context) {
 	p := colors(c.Theme())
 	groups := a.categories[a.platform()]
-	ui.Row(c).Height(30).Margin(0, contentInset, 20, contentInset).Gap(4).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Height(30).Margin(0, contentInset, 20, a.browseLeftInset()-filterTabPad).Gap(4).AlignItems(ui.Center).Children(func() {
 		if filterButton(c.Key("all"), "全部直播", a.category.ID == "").Clicked() {
 			a.selectCategory(platforms.Category{})
 		}
@@ -219,6 +294,12 @@ func (a *app) clearSearch() {
 	a.loadCatalog(1)
 }
 
+// leaveSearch 退出搜索结果回到推荐页，并把侧栏展开，避免只剩左上角开关可操作。
+func (a *app) leaveSearch() {
+	a.focusMode = false
+	a.clearSearch()
+}
+
 func (a *app) loadCategories(source platforms.Platform) {
 	if a.categoryLoading[source] || len(a.categories[source]) > 0 {
 		return
@@ -241,9 +322,10 @@ func (a *app) loadCategories(source platforms.Platform) {
 func (a *app) roomGrid(c *ui.Context, rooms []platforms.Room, skeleton, more bool) {
 	p := colors(c.Theme())
 	w, _ := c.Size()
-	available := w - sidebarWidth - contentInset*2 - 1
+	available := w - a.contentNavWidth() - a.browseLeftInset() - contentInset - 1
 	const gap float32 = 20
-	columns := max(1, int((available+gap)/(236+gap)))
+	columnWidth := w - sidebarWidth - a.browseLeftInset() - contentInset - 1
+	columns := max(1, int((columnWidth+gap)/(236+gap)))
 	coverHeight := (available - float32(columns-1)*gap) / float32(columns) * 9 / 16
 	count := len(rooms)
 	if skeleton {
@@ -288,13 +370,13 @@ func (a *app) roomGrid(c *ui.Context, rooms []platforms.Room, skeleton, more boo
 				})
 			}
 		})
-	}).Grow(1).Padding(0, contentInset, 20, contentInset)
+	}).Grow(1).Padding(0, contentInset, 20, a.browseLeftInset())
 }
 
 func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {
 	p := colors(c.Theme())
 	ui.Column(c.Key(string(r.Platform) + ":" + r.ID)).Gap(6).Children(func() {
-		b := ui.ButtonBase(c.Key("open")).Column().AlignItems(ui.Stretch).Justify(ui.Start).WidthPercent(100).MinWidth(0).Gap(9).Radius(9).Label("播放 " + r.Anchor + " " + r.Title).Tooltip(r.Title).Disabled(a.player == nil)
+		b := ui.ButtonBase(c.Key("open")).Column().AlignItems(ui.Stretch).Justify(ui.Start).WidthPercent(100).MinWidth(0).Gap(9).Radius(9).Label("播放 " + r.Anchor + " " + r.Title).Disabled(a.player == nil)
 		b.Children(func() {
 			ui.Box(c).Height(coverHeight).Radius(9).Background(p.soft).Children(func() {
 				a.coverImage(c, r.Cover, 9)

@@ -22,6 +22,7 @@ type Preferences struct {
 	ChatWidth         float64       `json:"chat_width"`
 	Appearance        string        `json:"appearance"`
 	Volume            float64       `json:"volume"`
+	DefaultQuality    string        `json:"default_quality"`
 	PauseWhenBrowsing bool          `json:"pause_when_browsing"`
 	Danmaku           bool          `json:"danmaku"`
 	DanmakuSize       float64       `json:"danmaku_size"`
@@ -59,7 +60,7 @@ type BlockedUser struct {
 }
 
 func Load(path string) (*State, error) {
-	s := &State{path: path, Preferences: Preferences{Appearance: "system", Volume: 60, Danmaku: true, DanmakuMerge: true, DanmakuSize: 24, DanmakuOpacity: 80, ChatPanel: true, ChatSize: 13, ChatBadges: true, ChatConnection: true, FilterEnabled: true, DanmakuSpeed: 1, DanmakuArea: .35, DanmakuWeight: 500, DanmakuStroke: 1, DanmakuLines: 4, DanmakuGap: 10, DanmakuTop: 12, DanmakuBottom: 24, DanmakuFPS: 60, DanmakuColor: "平台颜色"}}
+	s := &State{path: path, Preferences: Preferences{Appearance: "system", Volume: 60, DefaultQuality: platforms.QualityHighest, Danmaku: true, DanmakuMerge: true, DanmakuSize: 24, DanmakuOpacity: 80, ChatPanel: true, ChatSize: 13, ChatBadges: true, ChatConnection: true, FilterEnabled: true, DanmakuSpeed: 1, DanmakuArea: .35, DanmakuWeight: 500, DanmakuStroke: 1, DanmakuLines: 4, DanmakuGap: 10, DanmakuTop: 12, DanmakuBottom: 24, DanmakuFPS: 60, DanmakuColor: "平台颜色"}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -67,7 +68,9 @@ func Load(path string) (*State, error) {
 	if err != nil {
 		return s, err
 	}
-	err = json.Unmarshal(data, s)
+	if err = json.Unmarshal(data, s); err == nil {
+		s.Preferences.DefaultQuality = platforms.NormalizeQualityPreference(s.Preferences.DefaultQuality)
+	}
 	return s, err
 }
 func (s *State) Has(r platforms.Room) bool {
@@ -101,6 +104,47 @@ func (s *State) Toggle(r platforms.Room) error {
 	}
 	return nil
 }
+
+// UpdateFavorites 刷新收藏房间的标题、封面和开播状态，保留收藏顺序与本地 ID。
+func (s *State) UpdateFavorites(fresh []platforms.Room) error {
+	if len(fresh) == 0 {
+		return nil
+	}
+	byKey := make(map[string]platforms.Room, len(fresh))
+	for _, r := range fresh {
+		byKey[string(r.Platform)+":"+r.ID] = r
+	}
+	next := append([]platforms.Room(nil), s.Favorites...)
+	changed := false
+	for i, old := range next {
+		r, ok := byKey[string(old.Platform)+":"+old.ID]
+		if !ok {
+			continue
+		}
+		r.Platform, r.ID = old.Platform, old.ID
+		if r.Anchor == "" {
+			r.Anchor = old.Anchor
+		}
+		if r.Cover == "" {
+			r.Cover = old.Cover
+		}
+		if r != old {
+			next[i] = r
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	previous := s.Favorites
+	s.Favorites = next
+	if err := s.save(); err != nil {
+		s.Favorites = previous
+		return err
+	}
+	return nil
+}
+
 func (s *State) Watch(r platforms.Room) error {
 	next := []platforms.Room{r}
 	for _, v := range s.History {
@@ -119,6 +163,7 @@ func (s *State) Watch(r platforms.Room) error {
 
 func (s *State) SetPreferences(next Preferences) error {
 	next.Volume = max(0, min(100, next.Volume))
+	next.DefaultQuality = platforms.NormalizeQualityPreference(next.DefaultQuality)
 	previous := s.Preferences
 	s.Preferences = next
 	if err := s.save(); err != nil {

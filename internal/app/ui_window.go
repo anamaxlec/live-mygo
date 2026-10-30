@@ -103,6 +103,10 @@ func abs(value int) int {
 
 // 拖动过程中不再反复改写系统窗口尺寸，在缩放停下后一次贴合比例。
 func (a *app) windowResized() {
+	if a.surface != nil && a.companion {
+		// MyGo 在每次尺寸变化时重排标题栏按钮，小窗拖动后需要再次隐藏。
+		a.surface.SetWindowButtonsVisible(false)
+	}
 	if a.aspectBusy || a.closing || a.win == nil || a.companion {
 		return
 	}

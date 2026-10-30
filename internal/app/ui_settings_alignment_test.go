@@ -52,7 +52,7 @@ func TestFullSettingsUseOneTextColumnAcrossCategories(t *testing.T) {
 				tab, section int
 				labels       []string
 			}{
-				{settingsPlayback, 0, []string{"播放音量", "离开直播间时暂停", "窗口跟随画面比例", "斗鱼弹幕兼容连接"}},
+				{settingsPlayback, 0, []string{"默认画质", "播放音量", "离开直播间时暂停", "窗口跟随画面比例", "斗鱼弹幕兼容连接"}},
 				{settingsBarrage, 0, []string{"显示画面弹幕", "字体", "字重", "字号", "文字颜色", "描边", "不透明度"}},
 				{settingsBarrage, 2, []string{"显示画面弹幕", "过滤画面重复弹幕", "启用屏蔽规则", "过滤重复消息", "关键词与用户屏蔽"}},
 				{settingsChat, 0, []string{"显示弹幕列表", "列表样式", "文字大小", "显示接收时间", "显示粉丝牌", "显示连接面板", "过滤重复消息", "关键词与用户屏蔽"}},

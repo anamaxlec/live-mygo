@@ -163,3 +163,20 @@ func TestSpaceOnVideoPausesInsteadOfOnlyActivatingContainer(t *testing.T) {
 		t.Fatal("第二次 Space 没有恢复播放")
 	}
 }
+
+func TestQualityMenuListsEveryReturnedQuality(t *testing.T) {
+	state, _ := library.Load(filepath.Join(t.TempDir(), "library.json"))
+	room := platforms.Room{Platform: platforms.Douyu, ID: "182102", Title: "直播间标题", Anchor: "测试主播"}
+	qualities := []platforms.Quality{{ID: 0, Name: "原画1080P30"}, {ID: 4, Name: "蓝光4M"}, {ID: 3, Name: "超清"}, {ID: 2, Name: "高清"}}
+	a := &app{library: state, page: "player", title: room.Title, targetRoom: room, shown: true, stats: player.Stats{Paused: true}, controlsUntil: time.Now().Add(time.Hour), stream: &platforms.Stream{Room: room, QualityID: 4, Qualities: qualities, Sources: []platforms.Source{{ID: "line", Name: "线路 1", Format: "FLV"}}, SourceID: "line"}, qualityLabel: "蓝光4M"}
+	tester := ui.NewTester(a.view, 1180, 720)
+	if err := tester.Click("切换清晰度"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	for _, quality := range qualities {
+		if _, ok := tester.Find(quality.Name); !ok {
+			t.Fatalf("清晰度菜单缺少平台返回的档位 %q", quality.Name)
+		}
+	}
+}

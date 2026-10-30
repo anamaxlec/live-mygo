@@ -104,9 +104,6 @@ func (a *app) settingsView(c *ui.Context) {
 			}
 			ui.Row(c).Height(76).Padding(20, titlebarRight(c, 26), 12, 26).AlignItems(ui.Center).DragWindow().Children(func() {
 				ui.Text(c, title).FontSize(21).FontWeight(650).TextColor(p.text).Grow(1)
-				if a.settings.tab == settingsBarrage && ui.Button(c, "推荐样式").Height(28).FontSize(11.5).Clicked() {
-					a.restoreCaptionStyle()
-				}
 			})
 			ui.Scroll(c.Key(a.settings.tab)).Grow(1).MinHeight(0).Padding(4, 26, 26, 26).Transition(menuContentTransition).Children(func() {
 				if a.library == nil {
@@ -246,9 +243,47 @@ func (a *app) generalSettings(c *ui.Context) {
 	})
 }
 
+var defaultQualityOptions = []struct{ Label, Value string }{
+	{"最高画质", platforms.QualityHighest},
+	{"原画", platforms.QualityOriginal},
+	{"蓝光", platforms.QualityBluRay},
+	{"超清", platforms.QualityUltra},
+	{"高清", platforms.QualityHigh},
+	{"流畅", platforms.QualitySmooth},
+}
+
+func defaultQualityLabel(value string) string {
+	value = platforms.NormalizeQualityPreference(value)
+	for _, option := range defaultQualityOptions {
+		if option.Value == value {
+			return option.Label
+		}
+	}
+	return defaultQualityOptions[0].Label
+}
+
 func (a *app) playbackSettings(c *ui.Context) {
 	p := colors(c.Theme())
 	ui.Column(c).Gap(24).Children(func() {
+		settingsGroup(c, "清晰度", func() {
+			settingsRow(c, "默认画质", func() {
+				label := defaultQualityLabel(a.library.Preferences.DefaultQuality)
+				choices := make([]string, len(defaultQualityOptions))
+				for i, option := range defaultQualityOptions {
+					choices[i] = option.Label
+				}
+				if ui.Select(c, &label, choices).Width(170).Height(30).FontSize(12).Label("默认画质").Changed() {
+					next := a.library.Preferences
+					for _, option := range defaultQualityOptions {
+						if option.Label == label {
+							next.DefaultQuality = option.Value
+						}
+					}
+					a.savePreferences(next)
+				}
+			})
+			ui.Text(c, "进入直播间时自动选择；平台缺少所选档位时会使用最接近的可用清晰度。").FontSize(10.5).TextColor(p.muted).MaxLines(3).Padding(0, 15, 14, 15)
+		})
 		settingsGroup(c, "观看时", func() {
 			settingsRow(c, "播放音量", func() {
 				if ui.Slider(c, &a.volume, 0, 100).Width(120).Label("播放音量").Changed() {

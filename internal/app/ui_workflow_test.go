@@ -184,6 +184,26 @@ func TestChatDividerDragPersistsWidthAndKeepsVideoAligned(t *testing.T) {
 		t.Fatal("调整后直播和评论区没有对齐")
 	}
 }
+func TestChatDividerFollowsPointerAcrossFrames(t *testing.T) {
+	a := polishApp(t)
+	a.page = "player"
+	a.focusMode = true
+	tester := ui.NewTester(a.view, 1180, 780)
+	r, ok := tester.Find("调整弹幕栏宽度")
+	if !ok {
+		t.Fatal("缺少分隔条")
+	}
+	y := r.Y + 100
+	tester.Press(r.X+4, y)
+	tester.Move(r.X-40, y)
+	tester.Move(r.X-80, y)
+	tester.Release(r.X-80, y)
+	tester.Advance(time.Second)
+	if a.preferredChatWidth() < 350 {
+		t.Fatal("连续拖动时宽度没有跟随指针", a.preferredChatWidth())
+	}
+}
+
 func TestStartupPageAndChatWidthDefaults(t *testing.T) {
 	if startupPage("") != "home" || startupPage("unknown") != "home" || startupPage("favorites") != "favorites" {
 		t.Fatal("启动页回退错误")

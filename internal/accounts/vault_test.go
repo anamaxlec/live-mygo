@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -33,9 +34,12 @@ func TestVaultEncryptsAndRejectsTampering(t *testing.T) {
 	if bytes.Contains(raw, []byte("test-private-cookie")) {
 		t.Fatal("明文 Cookie 被写入磁盘")
 	}
-	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0600 {
-		t.Fatal("账号文件权限不是 0600")
+	// Windows 不使用 POSIX 权限位，账号文件的保护来自用户目录 ACL。
+	if runtime.GOOS != "windows" {
+		info, _ := os.Stat(path)
+		if info.Mode().Perm() != 0600 {
+			t.Fatal("账号文件权限不是 0600")
+		}
 	}
 	got, err := v.Header(platforms.Bilibili, "https://api.live.bilibili.com/room")
 	if err != nil || got != "SESSDATA=test-private-cookie" {

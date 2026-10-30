@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -117,16 +118,20 @@ func (a *app) view(c *ui.Context) {
 	}
 	desktop := ui.Row(c.Key("desktop-layout")).Fill().AlignItems(ui.Stretch)
 	target := sidebarWidth
-	if a.page == "player" && a.focusMode {
+	if a.focusMode && (a.page == "player" || runtime.GOOS == "windows") {
 		target = 0
 	}
 	duration := 220 * time.Millisecond
 	if a.page != "player" || a.library != nil && a.library.Preferences.FollowVideo {
 		duration = time.Nanosecond
 	}
+	if runtime.GOOS == "windows" && a.page != "player" {
+		// 浏览页同样滑出侧栏，而不是瞬间切换宽度。
+		duration = 200 * time.Millisecond
+	}
 	a.navWidth = desktop.AnimateTo("navigation-width", target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
 	a.navMeasured = true
-	if a.page != "player" {
+	if a.page != "player" && runtime.GOOS != "windows" {
 		a.navWidth = sidebarWidth
 	}
 	desktop.Children(func() {
@@ -157,6 +162,11 @@ func (a *app) view(c *ui.Context) {
 	if a.page == "player" {
 		// 标题栏跨过侧栏边界，导航按钮放在标题左侧，不挤占播放器的对齐线。
 		ui.Box(c.Key("watch-header-overlay")).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
+	} else if runtime.GOOS == "windows" {
+		// 与侧栏图标的 32 DIP 中线对齐；没有红绿灯时固定在左上角。
+		if iconButton(c.Key("browse-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", !a.focusMode).Absolute().Left(17).Top(14).Clicked() {
+			a.focusMode = !a.focusMode
+		}
 	}
 }
 
@@ -164,9 +174,11 @@ func (a *app) sidebar(c *ui.Context) {
 	p := colors(c.Theme())
 	top := max(c.TitleBar().Height, float32(38)) + 12
 	ui.Column(c).Fill().Padding(top, 14, 14, 14).Gap(19).DragWindow().Children(func() {
-		ui.Row(c).Height(32).Radius(8).Padding(0, 8).Gap(6).AlignItems(ui.Center).Background(p.hover).Children(func() {
-			ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.muted)
-			if ui.TextInput(c, &a.roomInput).Bind(&a.searchHandle).Placeholder("搜索直播").Label("搜索主播、房间号或直播间链接").Tooltip(shortcutLabel("输入主播名搜索，或粘贴直播间链接 · ⌘F")).FontSize(12.5).Height(30).Grow(1).Background(ui.Transparent).BorderWidth(0, 0, 0, 0).Submitted() {
+		ui.Row(c).Height(32).Radius(8).Padding(0, 8).Gap(10).AlignItems(ui.Center).Background(p.hover).Children(func() {
+			ui.Box(c).Size(20, 20).Shrink(0).Center().Children(func() {
+				ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.muted)
+			})
+			if ui.TextInputBase(c, &a.roomInput).Bind(&a.searchHandle).Placeholder("搜索直播").Label("搜索主播、房间号或直播间链接").Tooltip(shortcutLabel("输入主播名搜索，或粘贴直播间链接 · ⌘F")).FontSize(12.5).Height(30).Grow(1).Submitted() {
 				a.submitSearch()
 			}
 			if a.roomInput != "" && iconButton(c.Key("clear-search"), iconClose, "清除搜索").Size(20, 20).Clicked() {
@@ -200,14 +212,16 @@ func (a *app) sidebar(c *ui.Context) {
 			a.nowPlayingCard(c)
 		}
 		ui.Box(c).Height(1).Margin(0, 6).Background(p.line)
-		row := ui.ButtonBase(c.Key("accounts")).Height(35).PaddingX(9).Gap(10).Radius(8).AlignItems(ui.Center).Label("设置")
+		row := ui.ButtonBase(c.Key("accounts")).Height(35).PaddingX(8).Gap(10).Radius(8).AlignItems(ui.Center).Label("设置")
 		bg := ui.Transparent
 		if row.Hovered() {
 			bg = p.hover
 		}
 		row.Background(row.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
 		row.Children(func() {
-			ui.Icon(c, iconSettings).Size(17, 17).TextColor(p.muted)
+			ui.Box(c).Size(20, 20).Shrink(0).Center().Children(func() {
+				ui.Icon(c, iconSettings).Size(17, 17).TextColor(p.muted)
+			})
 			ui.Text(c, "设置").FontSize(12.5).TextColor(p.text).Grow(1)
 			ui.Icon(c, iconChevron).Size(12, 12).TextColor(p.faint)
 		})
@@ -219,7 +233,7 @@ func (a *app) sidebar(c *ui.Context) {
 
 func (a *app) navItem(c *ui.Context, id, label string, icon *ui.SVG, count int) {
 	p := colors(c.Theme())
-	b := ui.ButtonBase(c.Key(id)).Height(35).PaddingX(10).Gap(10).Radius(8).AlignItems(ui.Center).Label(label)
+	b := ui.ButtonBase(c.Key(id)).Height(35).PaddingX(8).Gap(10).Radius(8).AlignItems(ui.Center).Label(label)
 	bg := ui.Transparent
 	ink := p.muted
 	if a.page == id {
@@ -333,9 +347,8 @@ func (a *app) openPage(page string) {
 	}
 	a.leavePlayer()
 	a.page = page
-	if page == "favorites" || page == "bilibili" || page == "douyu" {
-		a.refreshFavorites(false)
-	}
+	// 首页和收藏页都优先展示关注的开播状态；冷却时间避免每次切页都请求。
+	a.refreshFavorites(false)
 	a.grid = ui.ListState{}
 	if page == "home" || page == "huya" || page == "bilibili" || page == "douyu" || page == "douyin" || page == "qie" || page == string(platforms.FLive) {
 		if page == "douyin" {
@@ -371,9 +384,12 @@ func (a *app) backToBrowse() {
 		page = string(a.platform())
 	}
 	a.page = page
+	// 从播放页返回浏览时恢复侧栏，搜索框和导航不必再靠左上角开关找回。
+	a.focusMode = false
 	if (page == "home" || page == "bilibili" || page == "douyu" || page == "huya" || page == "douyin" || page == "qie" || page == string(platforms.FLive)) && len(a.catalog) == 0 && !a.catalogLoading {
 		a.loadCatalog(1)
 	}
+	a.refreshFavorites(false)
 }
 
 func (a *app) submitSearch() {

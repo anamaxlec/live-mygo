@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"live-mygo/internal/platforms"
+	"log"
 	"sort"
 	"sync"
 	"time"
@@ -83,6 +84,13 @@ func (a *app) refreshFavorites(force bool) {
 			a.libraryRefreshing = false
 			a.libraryRefresh = time.Now()
 			a.libraryRooms = results
+			fresh := make([]platforms.Room, 0, len(results))
+			for _, r := range results {
+				fresh = append(fresh, r)
+			}
+			if err := a.library.UpdateFavorites(fresh); err != nil {
+				log.Print("保存关注直播状态失败：", err)
+			}
 			if len(results) < len(rooms) {
 				a.toast = "部分直播间状态暂未更新，可稍后刷新"
 			}

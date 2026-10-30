@@ -16,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/bodgit/sevenzip"
 )
 
 const runtimeURL = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z"
@@ -52,11 +54,8 @@ func main() {
 	if actual != runtimeDigest {
 		panic("libmpv 下载文件与上游 SHA-256 不匹配")
 	}
-	extract, err := os.MkdirTemp("build", ".windows-runtime-")
-	must(err)
-	defer os.RemoveAll(extract)
-	run(nil, "tar", "-xf", *archive, "-C", extract, "libmpv-2.dll")
-	copyFile(filepath.Join(extract, "libmpv-2.dll"), filepath.Join(out, "libmpv-2.dll"))
+	fmt.Println("解压 Windows 播放运行库")
+	extractSevenZip(*archive, "libmpv-2.dll", filepath.Join(out, "libmpv-2.dll"))
 	fmt.Println("准备证书、文档与许可证")
 	download("https://curl.se/ca/cacert.pem", filepath.Join(out, "cacert.pem"))
 	copyFile("LICENSE", filepath.Join(out, "LICENSE"))
@@ -66,6 +65,7 @@ func main() {
 	download("https://raw.githubusercontent.com/mpv-player/mpv/e471496c56/LICENSE.GPL", filepath.Join(out, "licenses/libmpv/LICENSE.GPL"))
 	download("https://raw.githubusercontent.com/mpv-player/mpv/e471496c56/LICENSE.LGPL", filepath.Join(out, "licenses/libmpv/LICENSE.LGPL"))
 	copyTree("docs/windows", filepath.Join(out, "docs/windows"))
+	copyTree("docs/macos", filepath.Join(out, "docs/macos"))
 	readme := "# Live MyGo " + strings.TrimSpace(string(version)) + " 测试版\n\n解压后运行 LiveMyGo.exe，保留同目录的 libmpv-2.dll 和 cacert.pem。\n\n"
 	if *sample != "" {
 		if filepath.Clean(*sample) != filepath.Join(out, "test-pattern.mp4") {
@@ -73,7 +73,7 @@ func main() {
 		}
 		readme += "可以先用附带的本地测试视频检查画面和控件：\n\n```powershell\n$env:LIVE_MYGO_DATA_DIR = Join-Path $env:TEMP 'live-mygo-windows-qa'\n.\\LiveMyGo.exe -file .\\test-pattern.mp4 -mute -report .\\reports\\windows-local.json\n```\n\n"
 	}
-	readme += "[实机测试交接](docs/windows/README.md) · [设计准则](docs/DESIGN.md) · [MyGo 文档](docs/MYGO.md)\n\n源码位于同版本的 source.zip。当前已交叉编译，Windows 实机运行待验证。\n"
+	readme += "[实机测试交接](docs/windows/README.md) · [设计准则](docs/DESIGN.md) · [MyGo 文档](docs/MYGO.md)\n\n源码位于同版本的 source.zip。Windows 实机记录、视频合成方式和 macOS 对齐交接见 docs/windows/README.md 与 docs/macos/README.md。\n"
 	must(os.WriteFile(filepath.Join(out, "README-Windows.md"), []byte(readme), 0644))
 	for _, doc := range []string{"DESIGN.md", "MYGO.md"} {
 		copyFile(filepath.Join("docs", doc), filepath.Join(out, "docs", doc))
@@ -92,7 +92,7 @@ func main() {
 	for _, doc := range []string{"DESIGN.md", "MYGO.md"} {
 		copyFile(filepath.Join("docs", doc), filepath.Join(stage, "docs", doc))
 	}
-	for _, dir := range []string{"windows", "mygo"} {
+	for _, dir := range []string{"windows", "mygo", "macos"} {
 		copyTree(filepath.Join("docs", dir), filepath.Join(stage, "docs", dir))
 	}
 	if *sample != "" {
@@ -178,6 +178,29 @@ func download(url, path string) {
 	must(err)
 	must(closeErr)
 }
+// Windows 自带 tar 不支持 7z，用纯 Go 解压避免额外安装。
+func extractSevenZip(archive, name, target string) {
+	r, err := sevenzip.OpenReader(archive)
+	must(err)
+	defer r.Close()
+	for _, file := range r.File {
+		if file.Name != name {
+			continue
+		}
+		rc, err := file.Open()
+		must(err)
+		out, err := os.Create(target)
+		must(err)
+		_, err = io.Copy(out, rc)
+		closeErr := out.Close()
+		rc.Close()
+		must(err)
+		must(closeErr)
+		return
+	}
+	panic(name + " 不在运行库归档中")
+}
+
 func copyFile(source, target string) {
 	f, err := os.Open(source)
 	must(err)

@@ -31,6 +31,14 @@
 - `⌃⌘F`：全屏；`Esc`：返回或退出全屏
 - `⌘1`–`⌘4`：切换页面；`⌘,`：打开设置
 
+## 项目结构
+
+- `cmd/`：图标生成、应用打包与平台验证工具。
+- `internal/app/`：macOS 界面与应用生命周期代码。
+- `internal/accounts/`、`internal/library/`、`internal/platforms/`、`internal/player/`：账号、本地数据、直播平台和播放器模块。
+- `assets/`：应用图标和界面图标。
+- `docs/`：设计、功能和版本记录。
+
 ## 构建
 
 需要 Go 1.27.3、Homebrew 的 `mpv` 和 Xcode Command Line Tools。

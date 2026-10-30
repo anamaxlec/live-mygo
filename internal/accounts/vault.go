@@ -42,7 +42,9 @@ type Vault struct {
 	mu      sync.Mutex
 }
 
-func validPlatform(p platforms.Platform) bool { return p == platforms.Bilibili || p == platforms.Douyu }
+func validPlatform(p platforms.Platform) bool {
+	return p == platforms.Bilibili || p == platforms.Douyu || p == platforms.Huya || p == platforms.Douyin || p == platforms.Qie
+}
 func allowed(p platforms.Platform, domain string) bool {
 	h := strings.TrimPrefix(strings.ToLower(domain), ".")
 	root := p.Domain()
@@ -67,6 +69,12 @@ func HasLogin(p platforms.Platform, cookies []Cookie) bool {
 	wanted := "SESSDATA"
 	if p == platforms.Douyu {
 		wanted = "acf_auth"
+	}
+	if p == platforms.Douyin {
+		wanted = "sessionid"
+	}
+	if p == platforms.Qie {
+		wanted = "token"
 	}
 	for _, c := range Filter(p, cookies) {
 		if c.Name == wanted && c.Value != "" {

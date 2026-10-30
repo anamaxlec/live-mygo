@@ -55,6 +55,15 @@ func (c *Client) ListenChat(ctx context.Context, p Platform, id string, message 
 	if err != nil {
 		return err
 	}
+	if p == Douyin {
+		return c.douyinChat(ctx, id, message, status)
+	}
+	if p == Qie {
+		return c.qieChat(ctx, id, message, status)
+	}
+	if p == Huya {
+		return c.huyaChat(ctx, id, message, status)
+	}
 	target := "wss://danmuproxy.douyu.com:8506/"
 	headers := http.Header{"User-Agent": {UserAgent}, "Origin": {"https://www.douyu.com"}}
 	var initial [][]byte

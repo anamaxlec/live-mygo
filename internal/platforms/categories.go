@@ -16,6 +16,18 @@ type Category struct {
 }
 
 func (c *Client) Categories(ctx context.Context, p Platform) ([]Category, error) {
+	if p == FLive {
+		return nil, nil
+	}
+	if p == Douyin {
+		return c.douyinCategories(ctx)
+	}
+	if p == Qie {
+		return c.qieCategories(ctx)
+	}
+	if p == Huya {
+		return c.huyaCategories(ctx)
+	}
 	if p == Douyu {
 		var r struct {
 			Code int `json:"code"`
@@ -84,6 +96,15 @@ func (c *Client) Categories(ctx context.Context, p Platform) ([]Category, error)
 func (c *Client) CategoryRooms(ctx context.Context, p Platform, category Category, page int) (Catalog, error) {
 	if category.ID == "" {
 		return c.Recommend(ctx, p, page)
+	}
+	if p == Douyin {
+		return c.douyinCategory(ctx, category, page)
+	}
+	if p == Qie {
+		return c.qieCatalog(ctx, category.ID)
+	}
+	if p == Huya {
+		return c.huyaCatalog(ctx, page, category.ID)
 	}
 	if p == Douyu {
 		out, err := c.douyuCatalog(ctx, fmt.Sprintf("https://www.douyu.com/gapi/rkc/directory/mixList/2_%s/%d", url.PathEscape(category.ID), page), page)

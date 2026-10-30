@@ -78,3 +78,22 @@ func TestSaveRequiresOwnPlatformLoginCookie(t *testing.T) {
 		t.Fatal("将游客会话当成登录")
 	}
 }
+
+func TestQieLoginStaysWithinOfficialDomain(t *testing.T) {
+	v := Vault{Dir: t.TempDir(), Secrets: &memorySecrets{}}
+	cs := []Cookie{{Name: "token", Value: "synthetic-qie-login", Domain: ".qie.tv", Path: "/", Secure: true, HTTPOnly: true}}
+	if err := v.Save(platforms.Qie, cs); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := v.Header(platforms.Qie, "https://www.qie.tv/swf_api/web_room/1"); err != nil || got != "token=synthetic-qie-login" {
+		t.Fatal("取流接口未收到保存的登录", got, err)
+	}
+	for _, target := range []string{"https://cdn.qiecdn.com/live.flv", "https://qie.tv.example.com/", "http://www.qie.tv/"} {
+		if got, err := v.Header(platforms.Qie, target); err != nil || got != "" {
+			t.Fatal("账号 Cookie 越界", target, got, err)
+		}
+	}
+	if err := v.Save(platforms.Qie, []Cookie{{Name: "uid", Value: "123", Domain: ".qie.tv", Path: "/"}}); err == nil {
+		t.Fatal("将 uid 当成有效登录")
+	}
+}

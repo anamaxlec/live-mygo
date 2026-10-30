@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || windows
 
 package player
 
@@ -56,30 +56,9 @@ type Stats struct {
 }
 
 func New(surface *Surface) (*Player, error) {
-	paths := []string{os.Getenv("LIVE_MYGO_LIBMPV")}
-	if paths[0] != "" {
-		// 显式指定时使用该库，便于定位配置问题及验证独立打包。
-	} else if runtime.GOOS == "darwin" {
-		if executable, err := os.Executable(); err == nil {
-			paths = append(paths, filepath.Join(filepath.Dir(executable), "../Frameworks/libmpv.2.dylib"))
-		}
-		paths = append(paths, "/opt/homebrew/opt/mpv/lib/libmpv.dylib", "/usr/local/opt/mpv/lib/libmpv.dylib", "libmpv.dylib")
-	} else {
-		paths = append(paths, "libmpv.so.2", "libmpv.so")
-	}
-	var lib uintptr
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-		h, err := purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_GLOBAL)
-		if err == nil {
-			lib = h
-			break
-		}
-	}
-	if lib == 0 {
-		return nil, errors.New("找不到 libmpv，请安装 mpv 或设置 LIVE_MYGO_LIBMPV")
+	lib, err := loadLibrary()
+	if err != nil {
+		return nil, err
 	}
 	p := &Player{}
 	for _, entry := range []struct {
@@ -91,7 +70,7 @@ func New(surface *Surface) (*Player, error) {
 		{"mpv_command_node", &p.api.commandNode},
 		{"mpv_terminate_destroy", &p.api.destroy}, {"mpv_wait_event", &p.api.waitEvent}, {"mpv_error_string", &p.api.errorString},
 	} {
-		sym, err := purego.Dlsym(lib, entry.name)
+		sym, err := librarySymbol(lib, entry.name)
 		if err != nil {
 			return nil, fmt.Errorf("libmpv 缺少 %s", entry.name)
 		}
@@ -104,14 +83,15 @@ func New(surface *Surface) (*Player, error) {
 	opts := [][2]string{{"config", "no"}, {"terminal", "no"}, {"msg-level", "all=no"}, {"input-default-bindings", "no"}, {"input-media-keys", "no"}, {"osc", "no"}, {"hwdec", "auto-safe"}, {"volume", "60"}, {"cache", "yes"}, {"cache-secs", "2"}, {"demuxer-readahead-secs", "2"}, {"demuxer-max-bytes", "32MiB"}}
 	opts = append(opts, [2]string{"tls-verify", "yes"})
 	if executable, err := os.Executable(); err == nil {
-		certificate := filepath.Join(filepath.Dir(executable), "../Resources/cacert.pem")
-		if _, err = os.Stat(certificate); err == nil {
-			opts = append(opts, [2]string{"tls-ca-file", certificate})
+		for _, certificate := range []string{filepath.Join(filepath.Dir(executable), "../Resources/cacert.pem"), filepath.Join(filepath.Dir(executable), "cacert.pem")} {
+			if _, err = os.Stat(certificate); err == nil {
+				opts = append(opts, [2]string{"tls-ca-file", certificate})
+				break
+			}
 		}
 	}
 	if surface != nil {
-		// Render API 在新画面通知时绘制，不提前 50 ms 占用 drawable 等待显示时刻。
-		opts = append(opts, [2]string{"vo", "libmpv"}, [2]string{"video-timing-offset", "0"})
+		opts = append(opts, surfaceOptions(surface)...)
 	} else {
 		opts = append(opts, [2]string{"vo", "null"}, [2]string{"ao", "null"})
 	}
@@ -249,8 +229,7 @@ func (p *Player) Close() {
 	defer p.mu.Unlock()
 	if p.handle != 0 {
 		if p.renderer != nil {
-			close(p.renderer.stop)
-			<-p.renderer.done
+			p.renderer.close()
 			p.renderer = nil
 		}
 		p.api.destroy(p.handle)

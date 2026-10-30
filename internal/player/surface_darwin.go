@@ -124,6 +124,16 @@ func NewSurface(window uintptr) (*Surface, error) {
 	return s, nil
 }
 
+// 与窗口布局一起在 UI 线程调用；小窗使用画面内的浮动标题操作。
+func (s *Surface) SetWindowButtonsVisible(visible bool) {
+	for _, kind := range []uintptr{0, 1, 2} {
+		button := s.window.Send(objc.RegisterName("standardWindowButton:"), kind)
+		if button != 0 {
+			button.Send(objc.RegisterName("setHidden:"), !visible)
+		}
+	}
+}
+
 // 渲染线程可能等待下一次垂直同步，主线程不在此等待它释放 drawable。
 // 本帧忙时交由下一次 UI 帧重试，只合并到最新尺寸。
 func (s *Surface) SetBounds(x, y, w, h, windowHeight float64) bool {
@@ -188,14 +198,6 @@ func (s *Surface) notify() {
 	}
 }
 
-type RenderMetrics struct {
-	Resizes         uint64  `json:"resizes"`
-	DeferredResizes uint64  `json:"deferred_resizes"`
-	MaxResizeMS     float64 `json:"max_main_thread_resize_ms"`
-	RenderedFrames  uint64  `json:"rendered_frames"`
-	UpdateCallbacks uint64  `json:"update_callbacks"`
-}
-
 func (s *Surface) Metrics() RenderMetrics {
-	return RenderMetrics{s.resizes.Load(), s.deferred.Load(), float64(s.maxResizeNS.Load()) / 1e6, s.rendered.Load(), s.callbacks.Load()}
+	return RenderMetrics{Resizes: s.resizes.Load(), DeferredResizes: s.deferred.Load(), MaxResizeMS: float64(s.maxResizeNS.Load()) / 1e6, RenderedFrames: s.rendered.Load(), UpdateCallbacks: s.callbacks.Load(), Backend: "libmpv-render-opengl"}
 }

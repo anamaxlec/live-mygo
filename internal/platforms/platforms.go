@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -19,10 +20,26 @@ type Platform string
 const (
 	Bilibili  Platform = "bilibili"
 	Douyu     Platform = "douyu"
+	Huya      Platform = "huya"
+	Douyin    Platform = "douyin"
+	Qie       Platform = "qie"
+	FLive     Platform = "flive"
 	UserAgent          = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 )
 
 func (p Platform) Name() string {
+	if p == FLive {
+		return "赛事"
+	}
+	if p == Douyin {
+		return "抖音"
+	}
+	if p == Qie {
+		return "企鹅体育"
+	}
+	if p == Huya {
+		return "虎牙"
+	}
 	if p == Bilibili {
 		return "哔哩哔哩"
 	}
@@ -33,6 +50,18 @@ func (p Platform) Name() string {
 }
 
 func (p Platform) Domain() string {
+	if p == FLive {
+		return "flive.dpdns.org"
+	}
+	if p == Douyin {
+		return "douyin.com"
+	}
+	if p == Qie {
+		return "qie.tv"
+	}
+	if p == Huya {
+		return "huya.com"
+	}
 	if p == Bilibili {
 		return "bilibili.com"
 	}
@@ -43,6 +72,15 @@ func (p Platform) Domain() string {
 }
 
 func (p Platform) LoginURL() string {
+	if p == Douyin {
+		return "https://live.douyin.com/"
+	}
+	if p == Qie {
+		return "https://www.qie.tv/"
+	}
+	if p == Huya {
+		return "https://www.huya.com/"
+	}
 	if p == Bilibili {
 		return "https://passport.bilibili.com/login"
 	}
@@ -103,6 +141,8 @@ type Client struct {
 	Cookies            SessionCookies
 	guestBili          string
 	douyuCompatibility atomic.Bool
+	visitorMu          sync.Mutex
+	douyinVisitor      string
 }
 
 func NewClient(cookies SessionCookies) *Client {
@@ -111,8 +151,9 @@ func NewClient(cookies SessionCookies) *Client {
 			return errors.New("重定向次数过多")
 		}
 		// 手动 Cookie 只允许跟随同一主机，防止接口重定向泄露凭据。
-		if len(via) > 0 && req.URL.Hostname() != via[0].URL.Hostname() {
+		if len(via) > 0 && (req.URL.Hostname() != via[0].URL.Hostname() || req.URL.Scheme != "https") {
 			req.Header.Del("Cookie")
+			req.Header.Del("Token")
 		}
 		return nil
 	}}, Cookies: cookies}
@@ -130,22 +171,37 @@ func ParseRoom(p Platform, input string) (Platform, string, error) {
 		}
 		host := strings.ToLower(u.Hostname())
 		switch {
+		case host == "flive.dpdns.org":
+			p = FLive
+			if u.Path == "/player" {
+				input = u.Query().Get("channelId")
+			} else {
+				return p, "", errors.New("请从赛事列表选择频道")
+			}
+		case host == "live.douyin.com":
+			p = Douyin
+		case host == "qie.tv" || host == "www.qie.tv" || host == "live.qq.com":
+			p = Qie
+		case host == "huya.com" || strings.HasSuffix(host, ".huya.com"):
+			p = Huya
 		case host == "live.bilibili.com":
 			p = Bilibili
 		case host == "douyu.com" || strings.HasSuffix(host, ".douyu.com"):
 			p = Douyu
 		default:
-			return p, "", errors.New("只支持 B 站和斗鱼的官方直播间链接")
+			return p, "", errors.New("请使用已支持来源的官方直播间链接")
 		}
-		input = strings.Trim(u.Path, "/")
+		if p != FLive {
+			input = strings.Trim(u.Path, "/")
+		}
 		if strings.Contains(input, "/") {
 			return p, "", errors.New("请使用直播间的直接链接")
 		}
 	}
-	if p != Bilibili && p != Douyu {
+	if p != Bilibili && p != Douyu && p != Huya && p != Douyin && p != Qie && p != FLive {
 		return p, "", errors.New("不支持的平台")
 	}
-	if p == Bilibili && !numeric.MatchString(input) || p == Douyu && !roomAlias.MatchString(input) {
+	if (p == Bilibili || p == Qie || p == FLive) && !numeric.MatchString(input) || (p == Douyu || p == Huya || p == Douyin) && !roomAlias.MatchString(input) {
 		return p, "", errors.New("请输入房间号或直播间链接")
 	}
 	return p, input, nil
@@ -155,6 +211,18 @@ func (c *Client) Resolve(ctx context.Context, p Platform, id string, quality int
 	p, id, err := ParseRoom(p, id)
 	if err != nil {
 		return nil, err
+	}
+	if p == FLive {
+		return c.flive(ctx, id, quality, route...)
+	}
+	if p == Douyin {
+		return c.douyin(ctx, id, quality, route...)
+	}
+	if p == Qie {
+		return c.qie(ctx, id, quality, route...)
+	}
+	if p == Huya {
+		return c.huya(ctx, id, quality, route...)
 	}
 	if p == Bilibili {
 		return c.bilibili(ctx, id, quality, route...)
@@ -183,6 +251,16 @@ func (c *Client) request(ctx context.Context, p Platform, method, target, refere
 		}
 		if cookie != "" {
 			req.Header.Set("Cookie", cookie)
+			if p == Qie {
+				for _, item := range req.Cookies() {
+					if item.Name == "token" {
+						token, err := url.PathUnescape(item.Value)
+						if err == nil {
+							req.Header.Set("Token", token)
+						}
+					}
+				}
+			}
 		}
 	}
 	if p == Bilibili && c.guestBili != "" && !strings.Contains(req.Header.Get("Cookie"), "buvid3=") {

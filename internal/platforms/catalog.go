@@ -23,6 +23,18 @@ type Catalog struct {
 }
 
 func (c *Client) Recommend(ctx context.Context, p Platform, page int) (Catalog, error) {
+	if p == FLive {
+		return c.fliveCatalog(ctx, "")
+	}
+	if p == Douyin {
+		return c.douyinCatalog(ctx, page)
+	}
+	if p == Qie {
+		return c.qieCatalog(ctx, "")
+	}
+	if p == Huya {
+		return c.huyaCatalog(ctx, page, "")
+	}
 	if p == Douyu {
 		return c.douyuCatalog(ctx, fmt.Sprintf("https://www.douyu.com/japi/weblist/apinc/allpage/6/%d", page), page)
 	}
@@ -113,6 +125,18 @@ func (v biliCard) room() Room {
 }
 
 func (c *Client) Search(ctx context.Context, p Platform, query string, page int) (Catalog, error) {
+	if p == FLive {
+		return c.fliveCatalog(ctx, query)
+	}
+	if p == Douyin {
+		return c.douyinSearch(ctx, query, page)
+	}
+	if p == Qie {
+		return c.qieSearch(ctx, query, page)
+	}
+	if p == Huya {
+		return c.huyaSearch(ctx, query, page)
+	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return Catalog{}, errors.New("请输入主播或直播间名称")

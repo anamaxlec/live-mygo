@@ -26,6 +26,11 @@ type renderer struct {
 	surface *Surface
 }
 
+func (r *renderer) close() {
+	close(r.stop)
+	<-r.done
+}
+
 func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 	r := &renderer{stop: make(chan struct{}), done: make(chan struct{}), surface: s}
 	ready := make(chan error, 1)

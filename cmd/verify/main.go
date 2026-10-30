@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	p := flag.String("platform", "bilibili", "bilibili 或 douyu")
+	p := flag.String("platform", "bilibili", "bilibili、douyu、huya、douyin 或 qie")
 	r := flag.String("room", "", "房间号或官方直播间链接")
 	q := flag.Int("quality", -1, "清晰度编号，-1 为默认")
 	route := flag.String("source", "", "平台实际返回的线路 ID")

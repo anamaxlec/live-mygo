@@ -68,6 +68,38 @@ type testCookies struct{}
 
 func (testCookies) Header(Platform, string) (string, error) { return "session=private", nil }
 
+type redirectTokenCookies struct{}
+
+func (redirectTokenCookies) Header(Platform, string) (string, error) {
+	return "token=synthetic-login", nil
+}
+
+func TestSensitiveHeadersAreRemovedOnHTTPSDowngrade(t *testing.T) {
+	var cookie, token string
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie = r.Header.Get("Cookie")
+		token = r.Header.Get("Token")
+		w.Write([]byte(`{}`))
+	}))
+	defer destination.Close()
+	source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Token") == "" {
+			t.Error("测试起点没有 token")
+		}
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer source.Close()
+	c := NewClient(redirectTokenCookies{})
+	c.HTTP.Transport = source.Client().Transport
+	var out map[string]any
+	if err := c.request(context.Background(), Qie, http.MethodGet, source.URL, "", nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	if cookie != "" || token != "" {
+		t.Fatal("HTTPS 降级重定向携带了登录信息")
+	}
+}
+
 func TestAPIRedirectDoesNotLeakCookie(t *testing.T) {
 	var received string
 	dst := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { received = r.Header.Get("Cookie"); w.Write([]byte(`{}`)) }))

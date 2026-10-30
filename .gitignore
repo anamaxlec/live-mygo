@@ -1,6 +1,7 @@
 /build/
 /data/
 /.local/
+/rsrc_windows_*.syso
 *.log
 .DS_Store
 /docs/DOWNBIT-STUDY.md

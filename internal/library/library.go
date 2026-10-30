@@ -17,6 +17,9 @@ type State struct {
 }
 
 type Preferences struct {
+	StartupPage       string        `json:"startup_page"`
+	RaceMenu          bool          `json:"race_menu,omitempty"`
+	ChatWidth         float64       `json:"chat_width"`
 	Appearance        string        `json:"appearance"`
 	Volume            float64       `json:"volume"`
 	PauseWhenBrowsing bool          `json:"pause_when_browsing"`
@@ -31,8 +34,6 @@ type Preferences struct {
 	DouyuLegacyTLS    bool          `json:"douyu_legacy_tls"`
 	ChatBadges        bool          `json:"chat_badges"`
 	ChatConnection    bool          `json:"chat_connection"`
-	ChatFollow        bool          `json:"chat_follow"`
-	ChatOfficial      bool          `json:"chat_official"`
 	FilterEnabled     bool          `json:"filter_enabled"`
 	FilterDuplicates  bool          `json:"filter_duplicates"`
 	BlockedKeywords   []string      `json:"blocked_keywords,omitempty"`
@@ -58,7 +59,7 @@ type BlockedUser struct {
 }
 
 func Load(path string) (*State, error) {
-	s := &State{path: path, Preferences: Preferences{Appearance: "system", Volume: 60, Danmaku: true, DanmakuMerge: true, DanmakuSize: 24, DanmakuOpacity: 80, ChatPanel: true, ChatSize: 13, ChatBadges: true, ChatConnection: true, ChatFollow: true, ChatOfficial: true, FilterEnabled: true, DanmakuSpeed: 1, DanmakuArea: .35, DanmakuWeight: 500, DanmakuStroke: 1, DanmakuLines: 4, DanmakuGap: 10, DanmakuTop: 12, DanmakuBottom: 24, DanmakuFPS: 60, DanmakuColor: "平台颜色"}}
+	s := &State{path: path, Preferences: Preferences{Appearance: "system", Volume: 60, Danmaku: true, DanmakuMerge: true, DanmakuSize: 24, DanmakuOpacity: 80, ChatPanel: true, ChatSize: 13, ChatBadges: true, ChatConnection: true, FilterEnabled: true, DanmakuSpeed: 1, DanmakuArea: .35, DanmakuWeight: 500, DanmakuStroke: 1, DanmakuLines: 4, DanmakuGap: 10, DanmakuTop: 12, DanmakuBottom: 24, DanmakuFPS: 60, DanmakuColor: "平台颜色"}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil

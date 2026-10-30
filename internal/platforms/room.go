@@ -14,6 +14,32 @@ func (c *Client) RoomInfo(ctx context.Context, p Platform, id string) (Room, err
 	if err != nil {
 		return Room{}, err
 	}
+	if p == FLive {
+		channels, err := c.fliveChannels(ctx)
+		if err != nil {
+			return Room{}, err
+		}
+		for _, ch := range channels {
+			if string(ch.ID) == id {
+				return ch.room(), nil
+			}
+		}
+		return Room{}, fmt.Errorf("未找到赛事频道")
+	}
+	if p == Douyin {
+		state, _, e := c.douyinPage(ctx, id)
+		return state.RoomStore.Info.Room.room(id), e
+	}
+	if p == Qie {
+		state, e := c.qiePage(ctx, "/"+id)
+		r := state.Props.Initial.Room.Info.Room.room()
+		r.ID = id
+		return r, e
+	}
+	if p == Huya {
+		v, e := c.huyaProfile(ctx, id)
+		return v.room(), e
+	}
 	room := Room{Platform: p, ID: id}
 	if p == Bilibili {
 		var v struct {

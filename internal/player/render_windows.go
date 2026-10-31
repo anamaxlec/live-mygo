@@ -5,7 +5,6 @@ package player
 import (
 	"fmt"
 	"runtime"
-	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -29,7 +28,7 @@ func (r *renderer) close() {
 }
 
 // initRenderer 在固定线程上创建软件渲染上下文。mpv 按视频时钟阻塞每次 render，
-// 从而保持音画同步；轮询新帧状态，避免从 mpv 线程回调 Go。
+// 从而保持音画同步；更新回调只负责唤醒渲染线程，不在 mpv 线程中绘制。
 func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 	r := &renderer{stop: make(chan struct{}), done: make(chan struct{}), surface: s}
 	ready := make(chan error, 1)
@@ -40,6 +39,7 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 		var create func(*uintptr, uintptr, *renderParam) int32
 		var render func(uintptr, *renderParam) int32
 		var update func(uintptr) uint64
+		var setUpdate func(uintptr, uintptr, uintptr)
 		var free func(uintptr)
 		for _, binding := range []struct {
 			name string
@@ -48,6 +48,7 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 			{"mpv_render_context_create", &create},
 			{"mpv_render_context_render", &render},
 			{"mpv_render_context_update", &update},
+			{"mpv_render_context_set_update_callback", &setUpdate},
 			{"mpv_render_context_free", &free},
 		} {
 			addr, err := librarySymbol(lib, binding.name)
@@ -66,22 +67,24 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 			return
 		}
 		defer free(ctx)
+		callback := purego.NewCallback(func(_ uintptr) uintptr {
+			s.callbacks.Add(1)
+			s.notify()
+			return 0
+		})
+		setUpdate(ctx, callback, 0)
+		defer setUpdate(ctx, 0, 0)
 		ready <- nil
-		ticker := time.NewTicker(4 * time.Millisecond)
-		defer ticker.Stop()
 		for {
 			select {
 			case <-r.stop:
 				return
-			case <-ticker.C:
+			case <-s.wake:
 			}
 			if !s.visible.Load() {
 				continue
 			}
 			flags := update(ctx)
-			if flags&1 != 0 {
-				s.callbacks.Add(1)
-			}
 			dirty := s.dirty.Swap(false)
 			if flags&1 == 0 && !dirty {
 				continue
@@ -113,9 +116,10 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 				s.releaseBuffer(buf)
 				continue
 			}
-			// rgb0 的第四字节未定义，MyGo 按不透明像素合成。
-			for i := 3; i < len(buf); i += 4 {
-				buf[i] = 255
+			// Windows 仅支持小端架构；按像素补齐 rgb0 未定义的 alpha。
+			pixels := unsafe.Slice((*uint32)(unsafe.Pointer(&buf[0])), len(buf)/4)
+			for i := range pixels {
+				pixels[i] |= 0xff000000
 			}
 			s.publish(buf, w, h, stride)
 		}

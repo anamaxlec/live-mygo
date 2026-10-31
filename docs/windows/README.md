@@ -75,7 +75,7 @@ $env:LIVE_MYGO_DATA_DIR = Join-Path $env:TEMP 'live-mygo-windows-qa'
 ## 需要重点验证的实现
 
 - `internal/player/surface_windows.go`：无原生窗口，只维护 HWND、可见性、目标尺寸和帧缓冲；`TakeFrame`/`ReleaseFrame` 由 UI 线程取帧和归还缓冲，`publish` 通过 `Win.Invalidate` 触发重绘。
-- `internal/player/render_windows.go`：加载 `mpv_render_context_*`，4 ms 轮询 `mpv_render_context_update`，在可见且有更新时渲染到 RGB0 缓冲；窗口消失时停止呈现，避免后台空转。
+- `internal/player/render_windows.go`：加载 `mpv_render_context_*`，由 mpv 更新回调唤醒渲染线程，在可见且有更新时渲染到 RGB0 缓冲；窗口消失时停止呈现，暂停或空闲时阻塞等待，避免后台空转。
 - `internal/app/ui_video_windows.go`：把最新帧包装成 `image.RGBA`，创建或更新 `ui.Bitmap`；更新后再归还上一帧缓冲，保证合成时数据有效。
 - `internal/player/library_windows.go`：从程序旁加载 DLL，`vo=libmpv`；TLS 证书校验保持开启。
 - `internal/app/ui_browse.go`、`ui_desktop.go`、`ui_discovery.go`、`ui_player.go`：标题栏高度、侧栏动画、统一左边线、分区标签、刷新按钮和网格列数。对齐细节与 macOS 移植说明见 [macOS 交接文档](../macos/README.md)。

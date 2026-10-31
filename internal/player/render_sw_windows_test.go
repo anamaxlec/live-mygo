@@ -60,6 +60,11 @@ func TestSWRenderFrame(t *testing.T) {
 	for time.Now().Before(deadline) {
 		if pix, w, h, stride, ok := s.TakeFrame(); ok {
 			t.Logf("frame %dx%d stride=%d first=%v", w, h, stride, pix[:8])
+			for i := 3; i < len(pix); i += 4 {
+				if pix[i] != 255 {
+					t.Fatalf("像素 %d 的 alpha=%d，期望 255", i/4, pix[i])
+				}
+			}
 			s.ReleaseFrame(pix)
 			return
 		}

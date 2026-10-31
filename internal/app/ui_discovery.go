@@ -34,9 +34,9 @@ type discoveryRow struct {
 func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 	p := colors(c.Theme())
 	width, _ := c.Size()
-	available := width - a.contentNavWidth() - a.browseLeftInset() - contentInset - 1
+	available := width - a.contentNavWidth() - a.browseLeftInset(c) - contentInset - 1
 	// 列数按侧栏展开时的宽度计算，收起过程中卡片平滑变宽而不跳列。
-	columnWidth := width - sidebarWidth - a.browseLeftInset() - contentInset - 1
+	columnWidth := width - sidebarWidth - 2*contentInset - 1
 	columns := max(1, int((columnWidth+20)/256))
 	coverHeight := (available - float32(columns-1)*20) / float32(columns) * 9 / 16
 	rows := []discoveryRow{}
@@ -57,7 +57,7 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 			return
 		}
 		heading(key+"-heading", title, page)
-		limit := max(1, min(3, int((available+14)/260)))
+		limit := max(1, min(3, int((columnWidth+14)/260)))
 		gap, bottom := float32(14), float32(13)
 		if large {
 			gap, bottom = 20, 22
@@ -165,7 +165,7 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 	a.grid.Key = func(i int) any { return rows[i].key }
 	// 元信息晚于首页到达时，保持滚动位置，不能把新插入的关注分组藏在视口上方。
 	a.grid.KeepOffset = true
-	ui.List(c.Key("discovery"), &a.grid, len(rows), func(i int) { rows[i].build(c) }).Grow(1).MinHeight(0).Padding(0, contentInset, 20, a.browseLeftInset())
+	ui.List(c.Key("discovery"), &a.grid, len(rows), func(i int) { rows[i].build(c) }).Grow(1).MinHeight(0).Padding(0, contentInset, 20, a.browseLeftInset(c))
 }
 
 func (a *app) personalRoom(c *ui.Context, r platforms.Room, live bool) {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/library"
@@ -61,6 +62,8 @@ func TestBrowsePagesShareOneLeftEdgeWhileSidebarMoves(t *testing.T) {
 			inset := contentInset
 			if runtime.GOOS == "windows" {
 				inset = max(contentInset, 54-navWidth)
+			} else {
+				inset = max(contentInset, 137-navWidth)
 			}
 			want := navWidth + inset
 			for _, label := range []string{"虎牙", "虎牙推荐", "播放 主播一 这是第一个直播间的完整标题"} {
@@ -79,6 +82,88 @@ func TestBrowsePagesShareOneLeftEdgeWhileSidebarMoves(t *testing.T) {
 				t.Fatalf("分区背景左边线为 %v，文字应为 %v", rect.X, want)
 			}
 		})
+	}
+}
+
+func TestBrowseSidebarRespectsSystemButtonsAndReversesSmoothly(t *testing.T) {
+	for _, nativeLeft := range []float32{0, 96, 146} {
+		a := polishApp(t)
+		a.platformLabel = "哔哩哔哩"
+		a.catalog = []platforms.Room{{Platform: platforms.Bilibili, ID: "1", Title: "侧栏动画测试", Anchor: "主播"}}
+		tester := ui.NewTester(a.view, 1110, 720)
+		tester.SetTitleBar(ui.TitleBar{Left: nativeLeft, Height: 58})
+		button, ok := tester.Find("显示 / 隐藏导航侧栏")
+		if !ok {
+			t.Fatal("浏览页缺少侧栏开关")
+		}
+		if runtime.GOOS == "darwin" && button.X < max(100, nativeLeft+14) {
+			t.Fatalf("侧栏开关进入红绿灯安全区：%+v nativeLeft=%v", button, nativeLeft)
+		}
+		if math.Abs(float64(button.Y+button.H/2-watchHeaderHeight/2)) > .1 {
+			t.Fatal("侧栏开关没有与标题栏居中", button)
+		}
+		if err := tester.Click("显示 / 隐藏导航侧栏"); err != nil {
+			t.Fatal(err)
+		}
+		tester.Advance(80 * time.Millisecond)
+		if a.navWidth <= 0 || a.navWidth >= sidebarWidth {
+			t.Fatal("浏览页侧栏没有连续收起过渡", a.navWidth)
+		}
+		if err := tester.Click("显示 / 隐藏导航侧栏"); err != nil {
+			t.Fatal(err)
+		}
+		tester.Advance(250 * time.Millisecond)
+		if math.Abs(float64(a.navWidth-sidebarWidth)) > .1 {
+			t.Fatal("快速反向操作未恢复展开状态", a.navWidth)
+		}
+		if err := tester.Click("显示 / 隐藏导航侧栏"); err != nil {
+			t.Fatal(err)
+		}
+		tester.Advance(250 * time.Millisecond)
+		title, ok := tester.Find("哔哩哔哩")
+		if !ok || a.navWidth > .1 || title.X < button.X+button.W+7-.1 {
+			t.Fatalf("收起后标题被开关挡住：nav=%v title=%+v button=%+v", a.navWidth, title, button)
+		}
+	}
+}
+
+func TestBrowseCardsKeepColumnsThroughSidebarAnimation(t *testing.T) {
+	for _, discovery := range []bool{false, true} {
+		for _, width := range []int{1000, 1110, 1360} {
+			var firstRow int
+			for _, nav := range []float32{sidebarWidth, 120, 20, 0} {
+				a := polishApp(t)
+				a.navMeasured, a.navWidth = true, nav
+				var rooms []platforms.Room
+				for i := 0; i < 9; i++ {
+					rooms = append(rooms, platforms.Room{Platform: platforms.Bilibili, ID: fmt.Sprint(i), Title: fmt.Sprint(i), Anchor: "主播"})
+				}
+				tester := ui.NewTester(func(c *ui.Context) {
+					ui.Row(c).Fill().Children(func() {
+						ui.Box(c).Width(nav).Shrink(0)
+						ui.Box(c).Grow(1).MinWidth(0).Children(func() {
+							if discovery {
+								a.discoveryView(c, rooms)
+							} else {
+								a.roomGrid(c, rooms, false, false)
+							}
+						})
+					})
+				}, width, 900)
+				first, _ := tester.Find("播放 主播 0")
+				count := 0
+				for i := range rooms {
+					if r, ok := tester.Find("播放 主播 " + fmt.Sprint(i)); ok && r.Y == first.Y {
+						count++
+					}
+				}
+				if nav == sidebarWidth {
+					firstRow = count
+				} else if count != firstRow {
+					t.Fatalf("侧栏动画导致跳列：discovery=%v width=%d nav=%v columns=%d want=%d", discovery, width, nav, count, firstRow)
+				}
+			}
+		}
 	}
 }
 

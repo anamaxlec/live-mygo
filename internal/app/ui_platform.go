@@ -33,6 +33,13 @@ func titlebarLeft(c *ui.Context) float32 {
 	return max(100, c.TitleBar().Left+14)
 }
 
+func browseSidebarLeft(c *ui.Context) float32 {
+	if runtime.GOOS == "windows" {
+		return 17
+	}
+	return titlebarLeft(c)
+}
+
 func (a *app) normalMinimum() {
 	if a.win == nil {
 		return

@@ -53,7 +53,7 @@ func (a *app) raceCatalog(c *ui.Context, rooms []platforms.Room) {
 	a.grid.Key = func(i int) any { return roomKey(rooms[i]) }
 	ui.List(c, &a.grid, len(rooms), func(i int) {
 		room := rooms[i]
-		ui.Box(c).FillWidth().Padding(0, contentInset, 8, a.browseLeftInset()).Children(func() {
+		ui.Box(c).FillWidth().Padding(0, contentInset, 8, a.browseLeftInset(c)).Children(func() {
 			button := ui.ButtonBase(c.Key(roomKey(room))).FillWidth().Height(64).PaddingX(14).Gap(12).Radius(10).AlignItems(ui.Center).Label("播放赛事频道 " + room.Title)
 			buttonFeedback(button, p)
 			button.Children(func() {

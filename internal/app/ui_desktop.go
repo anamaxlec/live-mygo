@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -118,22 +117,19 @@ func (a *app) view(c *ui.Context) {
 	}
 	desktop := ui.Row(c.Key("desktop-layout")).Fill().AlignItems(ui.Stretch)
 	target := sidebarWidth
-	if a.focusMode && (a.page == "player" || runtime.GOOS == "windows") {
+	if a.focusMode {
 		target = 0
 	}
 	duration := 220 * time.Millisecond
-	if a.page != "player" || a.library != nil && a.library.Preferences.FollowVideo {
+	if a.page == "player" && a.library != nil && a.library.Preferences.FollowVideo {
 		duration = time.Nanosecond
 	}
-	if runtime.GOOS == "windows" && a.page != "player" {
+	if a.page != "player" {
 		// 浏览页同样滑出侧栏，而不是瞬间切换宽度。
 		duration = 200 * time.Millisecond
 	}
 	a.navWidth = desktop.AnimateTo("navigation-width", target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
 	a.navMeasured = true
-	if a.page != "player" && runtime.GOOS != "windows" {
-		a.navWidth = sidebarWidth
-	}
 	desktop.Children(func() {
 		side := ui.Column(c.Key("navigation")).Width(a.navWidth).Shrink(0).FillHeight().Clip().Hidden(a.navWidth < .1)
 		if !c.Vibrancy() || a.customAppearance() {
@@ -162,9 +158,8 @@ func (a *app) view(c *ui.Context) {
 	if a.page == "player" {
 		// 标题栏跨过侧栏边界，导航按钮放在标题左侧，不挤占播放器的对齐线。
 		ui.Box(c.Key("watch-header-overlay")).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
-	} else if runtime.GOOS == "windows" {
-		// 与侧栏图标的 32 DIP 中线对齐；没有红绿灯时固定在左上角。
-		if iconButton(c.Key("browse-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", !a.focusMode).Absolute().Left(17).Top(14).Clicked() {
+	} else {
+		if iconButton(c.Key("browse-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", !a.focusMode).Absolute().Left(browseSidebarLeft(c)).Top((watchHeaderHeight - 30) / 2).Clicked() {
 			a.focusMode = !a.focusMode
 		}
 	}

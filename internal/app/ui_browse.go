@@ -4,7 +4,6 @@ package app
 
 import (
 	"fmt"
-	"runtime"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -22,18 +21,9 @@ func (a *app) contentNavWidth() float32 {
 	return a.navWidth
 }
 
-func (a *app) browseLeftInset() float32 {
-	if runtime.GOOS != "windows" {
-		return contentInset
-	}
-	if !a.navMeasured {
-		if a.focusMode {
-			return 54
-		}
-		return contentInset
-	}
-	// 侧栏收起时给左上角开关让出 54 DIP，标题、分区和卡片共用这条左边线。
-	return max(contentInset, 54-a.navWidth)
+func (a *app) browseLeftInset(c *ui.Context) float32 {
+	// 以开关右缘推导安全线；macOS 的开关先避开系统红绿灯。
+	return max(contentInset, browseSidebarLeft(c)+30+7-a.contentNavWidth())
 }
 
 func (a *app) browseView(c *ui.Context) {
@@ -67,13 +57,9 @@ func (a *app) browseView(c *ui.Context) {
 		title = "“" + a.catalogQuery + "”"
 	}
 	ui.Column(c).Fill().Children(func() {
-		left := a.browseLeftInset()
-		headerHeight, topPad, bottomPad := float32(84), float32(18), float32(10)
-		if runtime.GOOS == "windows" {
-			// 与播放页顶栏、左上角侧栏开关共用 58 DIP 中线。
-			headerHeight, topPad, bottomPad = watchHeaderHeight, 0, 0
-		}
-		ui.Row(c).Height(headerHeight).Padding(topPad, titlebarRight(c, contentInset), bottomPad, left).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
+		left := a.browseLeftInset(c)
+		// 浏览页与播放页共用标题栏中线，侧栏开关和系统按钮不再错层。
+		ui.Row(c).Height(watchHeaderHeight).Padding(0, titlebarRight(c, contentInset), 0, left).Gap(12).AlignItems(ui.Center).DragWindow().Children(func() {
 			if a.catalogQuery != "" {
 				backButton(c, "end-search", "返回", "返回浏览", a.leaveSearch)
 			}
@@ -100,7 +86,7 @@ func (a *app) browseView(c *ui.Context) {
 			return
 		}
 		if local {
-			ui.Row(c).Height(30).Margin(0, contentInset, 20, a.browseLeftInset()-filterTabPad).Gap(5).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Height(30).Margin(0, contentInset, 20, a.browseLeftInset(c)-filterTabPad).Gap(5).AlignItems(ui.Center).Children(func() {
 				for _, source := range append([]platforms.Platform{""}, a.sourcePlatforms()...) {
 					id, label := string(source), "全部"
 					if source != "" {
@@ -145,7 +131,7 @@ func (a *app) browseView(c *ui.Context) {
 			return
 		}
 		if !local && a.catalogError != "" {
-			ui.Text(c, a.catalogError).FontSize(12).TextColor(p.danger).Margin(0, contentInset, 14, a.browseLeftInset())
+			ui.Text(c, a.catalogError).FontSize(12).TextColor(p.danger).Margin(0, contentInset, 14, a.browseLeftInset(c))
 		}
 		a.roomGrid(c, rooms, false, !local && a.catalogMore)
 	})
@@ -227,7 +213,7 @@ func filterButton(c *ui.Context, label string, selected bool, dropdown ...bool) 
 func (a *app) categoryBar(c *ui.Context) {
 	p := colors(c.Theme())
 	groups := a.categories[a.platform()]
-	ui.Row(c).Height(30).Margin(0, contentInset, 20, a.browseLeftInset()-filterTabPad).Gap(4).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Height(30).Margin(0, contentInset, 20, a.browseLeftInset(c)-filterTabPad).Gap(4).AlignItems(ui.Center).Children(func() {
 		if filterButton(c.Key("all"), "全部直播", a.category.ID == "").Clicked() {
 			a.selectCategory(platforms.Category{})
 		}
@@ -322,9 +308,9 @@ func (a *app) loadCategories(source platforms.Platform) {
 func (a *app) roomGrid(c *ui.Context, rooms []platforms.Room, skeleton, more bool) {
 	p := colors(c.Theme())
 	w, _ := c.Size()
-	available := w - a.contentNavWidth() - a.browseLeftInset() - contentInset - 1
+	available := w - a.contentNavWidth() - a.browseLeftInset(c) - contentInset - 1
 	const gap float32 = 20
-	columnWidth := w - sidebarWidth - a.browseLeftInset() - contentInset - 1
+	columnWidth := w - sidebarWidth - 2*contentInset - 1
 	columns := max(1, int((columnWidth+gap)/(236+gap)))
 	coverHeight := (available - float32(columns-1)*gap) / float32(columns) * 9 / 16
 	count := len(rooms)
@@ -370,7 +356,7 @@ func (a *app) roomGrid(c *ui.Context, rooms []platforms.Room, skeleton, more boo
 				})
 			}
 		})
-	}).Grow(1).Padding(0, contentInset, 20, a.browseLeftInset())
+	}).Grow(1).Padding(0, contentInset, 20, a.browseLeftInset(c))
 }
 
 func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {

@@ -4,7 +4,7 @@
 
 **基于 MyGo 和 libmpv 的原生播放器练手项目，用于学习原生 UI、视频播放和弹幕绘制。**
 
-[Windows 安装包 0.4.1-beta](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-windows-amd64.zip) · [macOS 0.4.0-beta.2](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.0-beta.2/LiveMyGo-v0.4.0-beta.2-macos-arm64.dmg) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.1-beta)
+[Windows 安装包 0.4.1-beta](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-windows-amd64.zip) · [macOS 0.4.1-beta](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-macos-arm64.dmg) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.1-beta)
 
 ## 界面与功能
 
@@ -24,7 +24,7 @@
 
 应用使用 ad hoc 签名，尚未经过 Apple 公证。首次打开如被 macOS 阻止，请在系统设置中允许打开。
 
-Windows x64 测试版提供当前用户安装包或便携 ZIP，安装包无需管理员权限；便携包解压后运行 `LiveMyGo.exe`。已在 Windows 11 x64 实机验证界面、播放和弹幕：视频通过 libmpv Render API 的软件输出合成到 MyGo 位图，本地测试视频和各平台真实直播均有画面；对齐与打包细节见 [Windows 交接文件夹](docs/windows/README.md)，macOS 端后续修复参考 [macOS 对齐交接](docs/macos/README.md)。
+Windows x64 测试版提供当前用户安装包或便携 ZIP，安装包无需管理员权限；便携包解压后运行 `LiveMyGo.exe`。已在 Windows 11 x64 实机验证界面、播放和弹幕：视频通过 libmpv Render API 的软件输出合成到 MyGo 位图，本地测试视频和各平台真实直播均有画面；对齐与打包细节见 [Windows 交接文件夹](docs/windows/README.md)，macOS 更新记录见 [macOS 更新与验证](docs/macos/README.md)。
 
 ## 快捷键
 

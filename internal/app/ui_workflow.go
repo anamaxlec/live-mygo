@@ -127,6 +127,7 @@ func (a *app) chatResizeHandle(c *ui.Context, width, edge float32) {
 }
 func (a *app) closePlayback() {
 	a.cancelSleep()
+	a.pausedOnLeave = false
 	if a.companion {
 		a.toggleCompanion()
 	}

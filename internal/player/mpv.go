@@ -80,7 +80,8 @@ func New(surface *Surface) (*Player, error) {
 	if p.handle == 0 {
 		return nil, errors.New("无法创建 libmpv 播放器")
 	}
-	opts := [][2]string{{"config", "no"}, {"terminal", "no"}, {"msg-level", "all=no"}, {"input-default-bindings", "no"}, {"input-media-keys", "no"}, {"osc", "no"}, {"hwdec", "auto-safe"}, {"volume", "60"}, {"cache", "yes"}, {"cache-secs", "2"}, {"demuxer-readahead-secs", "2"}, {"demuxer-max-bytes", "32MiB"}}
+	// 本地文件不需要流缓存；直播没有回看，前向缓存限制在 32MiB 并压缩后向缓存。
+	opts := [][2]string{{"config", "no"}, {"terminal", "no"}, {"msg-level", "all=no"}, {"input-default-bindings", "no"}, {"input-media-keys", "no"}, {"osc", "no"}, {"hwdec", "auto-safe"}, {"volume", "60"}, {"cache", "auto"}, {"cache-secs", "2"}, {"demuxer-readahead-secs", "2"}, {"demuxer-max-bytes", "32MiB"}, {"demuxer-max-back-bytes", "4MiB"}}
 	if logPath := os.Getenv("LIVE_MYGO_MPV_LOG"); logPath != "" {
 		opts = append(opts, [2]string{"log-file", logPath}, [2]string{"msg-level", "all=v"})
 	}

@@ -4,7 +4,7 @@
 
 **基于 MyGo 和 libmpv 的原生播放器练手项目，用于学习原生 UI、视频播放和弹幕绘制。**
 
-[Windows 安装包 0.4.1-beta.2](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.2/LiveMyGo-v0.4.1-beta.2-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.2/LiveMyGo-v0.4.1-beta.2-windows-amd64.zip) · [macOS 0.4.1-beta](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-macos-arm64.dmg) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.1-beta.2)
+[Windows 安装包 0.4.1-beta.3](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64.zip) · [macOS 0.4.1-beta](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta/LiveMyGo-v0.4.1-beta-macos-arm64.dmg) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.1-beta.3)
 
 ## 界面与功能
 

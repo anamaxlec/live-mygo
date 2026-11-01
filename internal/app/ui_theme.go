@@ -70,6 +70,7 @@ func (a *app) leavePlayer() {
 	}
 	if a.page == "player" && a.library != nil && a.library.Preferences.PauseWhenBrowsing && a.shown && !a.stats.Paused {
 		a.togglePause()
+		a.pausedOnLeave = true
 	}
 }
 

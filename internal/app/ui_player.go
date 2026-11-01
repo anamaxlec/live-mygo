@@ -637,6 +637,7 @@ func (a *app) togglePause() {
 	if !a.shown || a.player == nil {
 		return
 	}
+	a.pausedOnLeave = false
 	a.revealControls()
 	a.stats.Paused = !a.stats.Paused
 	value := "no"

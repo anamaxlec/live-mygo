@@ -7,8 +7,8 @@ import (
 	"context"
 	"fmt"
 	"image"
-	_ "image/jpeg"
-	_ "image/png"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -289,7 +289,14 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 		if b.Clicked() {
 			a.returnPage = a.page
 			a.page = "player"
+			a.focusMode = true
 			a.revealControls()
+			if a.pausedOnLeave {
+				a.pausedOnLeave = false
+				if a.shown && a.stats.Paused {
+					a.togglePause()
+				}
+			}
 			a.fitWindowToVideo(true)
 		}
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -544,6 +551,8 @@ func (a *app) finishCover(raw string, bitmap *ui.Bitmap) {
 	}
 	a.covers[raw] = bitmap
 	a.coverOrder = append(a.coverOrder, raw)
+	// 登记后即可丢弃 RGBA 像素；GPU 首次上传或重绘时按需从压缩缩略图重新解码。
+	bitmap.ReleasePixels()
 }
 
 // 网络或解码失败不会永久占用 loading 标记；短暂失败在冷却后可重新请求。
@@ -584,7 +593,35 @@ func downloadCover(ctx context.Context, client *http.Client, raw string) (*ui.Bi
 	w, h := max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))
 	thumb := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.ApproxBiLinear.Scale(thumb, thumb.Bounds(), img, bounds, draw.Src, nil)
-	return ui.NewBitmap(thumb), nil
+	data = encodeCover(thumb)
+	if data == nil {
+		return nil, fmt.Errorf("封面编码失败")
+	}
+	return ui.DecodeBitmap(data)
+}
+
+// encodeCover keeps the thumbnail compressed so that DecodeBitmap can drop
+// the RGBA pixels after the GPU uploads them and decode them again on demand.
+// Transparency, as emotes have, needs PNG; covers take the much smaller JPEG.
+func encodeCover(thumb *image.RGBA) []byte {
+	var buf bytes.Buffer
+	opaque := true
+	for i := 3; i < len(thumb.Pix); i += 4 {
+		if thumb.Pix[i] != 255 {
+			opaque = false
+			break
+		}
+	}
+	var err error
+	if opaque {
+		err = jpeg.Encode(&buf, thumb, &jpeg.Options{Quality: 90})
+	} else {
+		err = png.Encode(&buf, thumb)
+	}
+	if err != nil {
+		return nil
+	}
+	return buf.Bytes()
 }
 
 func roomLabel(r platforms.Room) string {

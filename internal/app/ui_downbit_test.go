@@ -237,3 +237,35 @@ func TestQuickSearchDefaultsToCurrentRoomPlatform(t *testing.T) {
 		t.Fatal("直接跨平台开房后，房间号搜索仍使用旧平台")
 	}
 }
+
+func TestNowPlayingCardResumesLeavingPauseAndCollapsesSidebar(t *testing.T) {
+	a := polishApp(t)
+	a.page, a.focusMode, a.shown = "bilibili", false, true
+	a.pausedOnLeave, a.stats.Paused = true, true
+	a.stream = &platforms.Stream{Room: platforms.Room{Platform: platforms.Bilibili, ID: "6", Title: "当前直播", Anchor: "当前主播"}}
+	a.targetRoom = a.stream.Room
+	tester := ui.NewTester(a.view, 1180, 780)
+	if err := tester.Click("返回正在播放的直播间"); err != nil {
+		t.Fatal(err)
+	}
+	if a.page != "player" || !a.focusMode {
+		t.Fatalf("返回直播间未进入播放页或未收起侧栏：page=%q focusMode=%v", a.page, a.focusMode)
+	}
+	if a.stats.Paused || a.pausedOnLeave {
+		t.Fatalf("返回直播间后仍在暂停：paused=%v flag=%v", a.stats.Paused, a.pausedOnLeave)
+	}
+}
+
+func TestNowPlayingCardKeepsManualPause(t *testing.T) {
+	a := polishApp(t)
+	a.page, a.focusMode, a.shown = "bilibili", false, true
+	a.stats.Paused = true
+	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "6", Title: "当前直播", Anchor: "当前主播"}
+	tester := ui.NewTester(a.view, 1180, 780)
+	if err := tester.Click("返回正在播放的直播间"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.stats.Paused || a.page != "player" {
+		t.Fatalf("手动暂停被返回直播间操作解除：paused=%v page=%q", a.stats.Paused, a.page)
+	}
+}

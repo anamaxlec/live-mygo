@@ -8,20 +8,20 @@ import (
 	"time"
 )
 
-func (a *app) coverImage(c *ui.Context, raw string, radius float32) {
+func (a *app) coverImage(c *ui.Context, raw string, radius ...float32) {
 	p := colors(c.Theme())
 	image := a.cover(raw)
 	target := float32(0)
 	if image != nil {
 		target = 1
 	}
-	box := ui.Box(c.Key(raw)).Fill().Radius(radius).Clip().Background(p.soft)
+	box := ui.Box(c.Key(raw)).Fill().Radius(radius...).Clip().Background(p.soft)
 	opacity := box.Animate("image", target, 180*time.Millisecond)
 	box.Children(func() {
 		if image == nil {
 			ui.Box(c).Fill().Center().Children(func() { ui.Icon(c, iconTV).Size(24, 24).TextColor(p.faint) })
 		} else {
-			ui.Image(c, image).Fill().Fit(ui.Cover).Radius(radius).Opacity(opacity)
+			ui.Image(c, image).Fill().Fit(ui.Cover).Radius(radius...).Opacity(opacity)
 		}
 	})
 }
@@ -199,7 +199,7 @@ func (a *app) featuredRoom(c *ui.Context, r platforms.Room, width float32) {
 	ui.Box(c).Padding(0, 0, 22, 0).Children(func() {
 		b := ui.ButtonBase(c).FillWidth().Height(height).Gap(22).AlignItems(ui.Center).Radius(12).Background(p.soft).Clip().Label("精选直播 " + r.Anchor + " " + r.Title).Disabled(a.player == nil)
 		b.Children(func() {
-			ui.Box(c).Width(coverWidth).Height(height).Shrink(0).Clip().Children(func() { a.coverImage(c, r.Cover, 0); sourceBadge(c, r.Platform, false) })
+			ui.Box(c).Width(coverWidth).Height(height).Shrink(0).Clip().Children(func() { a.coverImage(c, r.Cover, 12, 0, 0, 12); sourceBadge(c, r.Platform, false) })
 			ui.Column(c).Grow(1).MinWidth(0).Padding(16, 20, 16, 0).Gap(10).Children(func() {
 				ui.Text(c, r.Title).FontSize(18).FontWeight(600).LineHeight(1.35).MaxLines(3).TextColor(p.text)
 				ui.Text(c, roomLabel(r)).FontSize(12).TextColor(p.muted).SingleLine()

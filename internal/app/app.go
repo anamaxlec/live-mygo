@@ -82,6 +82,7 @@ type app struct {
 	category                               platforms.Category
 	libraryPlatform                        string
 	focusMode                              bool
+	pausedOnLeave                          bool
 	chatCancel                             context.CancelFunc
 	chatGeneration                         int
 	chatRoomKey                            string
@@ -380,6 +381,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 	a.revealControls()
 	if a.stream == nil || a.stream.Room.Platform != p || a.stream.Room.ID != id {
 		a.reconnectAttempts = 0
+		a.pausedOnLeave = false
 		if a.shown {
 			a.command("stop")
 		}
@@ -524,6 +526,7 @@ func (a *app) playFile(path string) {
 		}
 		path = absolute
 	}
+	a.pausedOnLeave = false
 	if a.surface != nil {
 		a.renderedAtStart = a.surface.Metrics().RenderedFrames
 	}

@@ -69,7 +69,7 @@ Function CloseRunningApp
   IfFileExists "$INSTDIR\${APP_EXE}" 0 closeDone
   ClearErrors
   FileOpen $0 "$INSTDIR\${APP_EXE}" "a"
-  IfErrors 0 closeDone
+  IfErrors 0 closeOpened
   IfSilent closeNow
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Live MyGo 正在运行，需要关闭后才能继续安装。$\r$\n$\r$\n是否关闭 Live MyGo 并继续安装？" IDYES closeNow
   MessageBox MB_OK|MB_ICONINFORMATION "安装已取消。请退出 Live MyGo 后重新运行安装程序。"
@@ -111,6 +111,10 @@ closeForceNow:
 closeFailed:
   MessageBox MB_OK|MB_ICONSTOP "仍无法关闭 Live MyGo，请手动退出应用后重新运行安装程序。"
   Abort
+
+closeOpened:
+  FileClose $0
+  Goto closeDone
 
 closeDone:
 FunctionEnd

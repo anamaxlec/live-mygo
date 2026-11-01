@@ -1,6 +1,8 @@
 # Windows 测试交接
 
-当前为 `0.4.1-beta`，目标是 Windows x64，为未签名测试构建。可使用同版本的安装包 `LiveMyGo-v0.4.1-beta-windows-amd64-setup.exe`（当前用户安装，无需管理员权限），或解压应用 ZIP 后直接运行 `LiveMyGo.exe`。便携包里的 `libmpv-2.dll` 和 `cacert.pem` 需要保留。
+当前为 `0.4.1-beta.2`，目标是 Windows x64，为未签名测试构建。可使用同版本的安装包 `LiveMyGo-v0.4.1-beta.2-windows-amd64-setup.exe`（当前用户安装，无需管理员权限），或解压应用 ZIP 后直接运行 `LiveMyGo.exe`。便携包里的 `libmpv-2.dll` 和 `cacert.pem` 需要保留。
+
+此版本包含 Windows 播放 CPU 开销优化：渲染线程改由 mpv 新帧回调唤醒，暂停或空闲时不再每 4 ms 轮询；RGB 帧的 alpha 改为按 32 位批量补齐。
 
 2026-10-30 已在 Windows 11 x64、200% 缩放（192 DPI，3072×1920）实机运行。`go test ./...`、`go vet ./...`、`go run ./cmd/package-windows -test` 均通过。视频已可用：libmpv 的 D3D11 子窗口没有进入 MyGo 的合成层，因此改为 Render API 软件输出（`vo=libmpv`、`MPV_RENDER_API_TYPE_SW`），把 RGB 帧上传为 MyGo 位图，再由 UI 线程合成。本地 H.264 测试视频和 B 站、虎牙、斗鱼、抖音、企鹅体育真实直播均有画面与音频解码；QA 报告 `rendering.backend` 为 `libmpv-render-sw`，不同平台首帧约 0.6–2.1 秒。另一次 97 秒直播测试（2560×1440、60 fps 源，渲染上限 1920×1080）渲染 585 帧、0 丢帧、`d3d11va-copy`，CPU 约 4.7 秒用户态 + 5.7 秒内核态，峰值 RSS 约 493 MiB。macOS 已验证原生播放、实时消息、小窗往返和界面布局，并运行 race 测试。
 

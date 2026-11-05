@@ -3,11 +3,49 @@
 package app
 
 import (
+	"encoding/json"
 	"math"
 	"time"
 
 	"github.com/egoist/mygo"
 )
+
+// MyGo 负责恢复普通窗口边界、最大化和全屏；存储复用本机 library.json。
+type appWindowStateStore struct{ app *app }
+
+func (s appWindowStateStore) LoadWindowStates() (map[string]mygo.WindowState, error) {
+	if s.app.library == nil || len(s.app.library.WindowStates) == 0 {
+		return nil, nil
+	}
+	var states map[string]mygo.WindowState
+	err := json.Unmarshal(s.app.library.WindowStates, &states)
+	return states, err
+}
+
+func (s appWindowStateStore) SaveWindowStates(states map[string]mygo.WindowState) error {
+	if s.app.library == nil {
+		return nil
+	}
+	if s.app.companion {
+		// 小窗是同一个 NSWindow 的临时布局，不能替换下次启动的主窗口尺寸。
+		bounds := s.app.companionBounds
+		main := states["main"]
+		main.X, main.Y, main.Width, main.Height = bounds.X, bounds.Y, bounds.Width, bounds.Height
+		main.Maximized, main.FullScreen = false, false
+		states["main"] = main
+	}
+	encoded, err := json.Marshal(states)
+	if err != nil {
+		return err
+	}
+	previous := s.app.library.WindowStates
+	s.app.library.WindowStates = encoded
+	if err := s.app.library.SetPreferences(s.app.library.Preferences); err != nil {
+		s.app.library.WindowStates = previous
+		return err
+	}
+	return nil
+}
 
 func (a *app) toggleFollowVideo() {
 	if a.library == nil {

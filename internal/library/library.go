@@ -15,6 +15,7 @@ type State struct {
 	Preferences     Preferences                `json:"preferences"`
 	FavoriteDetails map[string]FavoriteDetails `json:"favorite_details,omitempty"`
 	LastSession     *PlaybackSession           `json:"last_session,omitempty"`
+	WindowStates    json.RawMessage            `json:"window_states,omitempty"`
 	path            string
 }
 

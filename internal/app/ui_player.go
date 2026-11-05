@@ -109,12 +109,29 @@ func (a *app) contentView(c *ui.Context) {
 				}
 				if !full {
 					ui.Box(c.Key("watch-frame-edge")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Radius(radius).PassThrough().Role(ui.RoleNone).Draw(func(painter *ui.Painter, r ui.Rect) {
+						paintWatchCornerBackdrop(painter, r, radius, chrome)
 						paintWatchFrame(painter, r, p, radius)
 					})
 				}
 			})
 		})
 	})
+}
+
+// 手动外观使用实色底板，圆角外侧也覆盖同色；系统磨砂模式仍透出原生材质。
+func paintWatchCornerBackdrop(p *ui.Painter, r ui.Rect, radius float32, chrome ui.Color) {
+	if radius <= 0 || chrome.A == 0 {
+		return
+	}
+	const circleControl = .44771525
+	d := radius * circleControl
+	for _, corner := range [][4]float32{{r.X, r.Y, 1, 1}, {r.X + r.W, r.Y, -1, 1}, {r.X, r.Y + r.H, 1, -1}, {r.X + r.W, r.Y + r.H, -1, -1}} {
+		x, y, sx, sy := corner[0], corner[1], corner[2], corner[3]
+		var path ui.Path
+		path.MoveTo(x, y+sy*radius).LineTo(x, y).LineTo(x+sx*radius, y).
+			CubeTo(x+sx*d, y, x, y+sy*d, x, y+sy*radius).Close()
+		p.FillPath(&path, chrome)
+	}
 }
 
 // 描边在内容之上，容器外侧保持系统底板。

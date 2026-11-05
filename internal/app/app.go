@@ -77,6 +77,7 @@ type app struct {
 	catalogLoading, catalogMore            bool
 	catalogCancel                          context.CancelFunc
 	catalogGeneration                      int
+	homeCatalog                            homeCatalogState
 	grid                                   ui.ListState
 	categories                             map[platforms.Platform][]platforms.Category
 	categoryLoading                        map[platforms.Platform]bool
@@ -115,6 +116,7 @@ type app struct {
 	playControl                            ui.Handle
 	navWidth                               float32
 	navMeasured                            bool
+	navReturn                              uint64
 	qualityOpen, sourceOpen                bool
 	danmakuOpen, volumeOpen                bool
 	chatSettingsOpen                       bool
@@ -159,6 +161,7 @@ type app struct {
 	recordingTimer                         *time.Timer
 	chatClearRun                           uint64
 	chatClearActive                        bool
+	restartAfterClose                      bool
 }
 
 type systemSecrets struct{}
@@ -237,7 +240,21 @@ func Run(version string) {
 	a.categories = map[platforms.Platform][]platforms.Category{}
 	a.categoryLoading = map[platforms.Platform]bool{}
 	mygo.App.SetName("Live MyGo")
+	mygo.App.SetWindowStateStore(appWindowStateStore{app: a})
+	if a.library != nil {
+		mygo.Theme.SetSource(mygo.ThemeSource(a.library.Preferences.Appearance))
+	}
 	mygo.App.WhenReady(func() { a.start() })
+	mygo.App.OnDidBecomeActive(func() {
+		for _, window := range a.allPlaybackWindows() {
+			if window.surface != nil && !window.closing {
+				window.surface.Show(window.page == "player" && window.shown && !window.minimized && !window.audioOnly())
+				if window.win != nil {
+					window.win.Invalidate()
+				}
+			}
+		}
+	})
 	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
 		if !a.clean {
 			e.PreventDefault()
@@ -251,12 +268,15 @@ func Run(version string) {
 
 func (a *app) start() {
 	_ = mygo.App.Dock.SetIcon(appIconPNG)
-	a.win = mygo.NewWindow(mygo.WindowOptions{Title: "Live MyGo", Width: 1180, Height: 780, MinWidth: 1000, MinHeight: 580, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 58, TrafficLightPosition: &mygo.Point{X: 16, Y: 22}, Vibrancy: mygo.VibrancySidebar, BackgroundColor: "light-dark(#ffffff, #141416)", Content: ui.View(a.view)})
+	a.win = mygo.NewWindow(mygo.WindowOptions{Title: "Live MyGo", StateKey: "main", Width: 1180, Height: 780, MinWidth: 1000, MinHeight: 580, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 58, TrafficLightPosition: &mygo.Point{X: 16, Y: 22}, Vibrancy: mygo.VibrancySidebar, BackgroundColor: "light-dark(#ffffff, #141416)", Content: ui.View(a.view)})
 	_ = a.win.SetIcon(appIconPNG)
 	a.registerMediaControls()
 	a.fitInitialWindow()
 	a.win.OnResize(a.windowResized)
 	a.win.OnFocus(func() {
+		if a.surface != nil {
+			a.surface.Show(a.page == "player" && a.shown && !a.minimized && !a.audioOnly())
+		}
 		if !a.companion && !a.win.IsFullScreen() {
 			a.win.SetTitle(a.win.Title())
 		}
@@ -270,6 +290,9 @@ func (a *app) start() {
 	})
 	a.win.OnRestore(func() {
 		a.minimized = false
+		if a.surface != nil {
+			a.surface.Show(a.page == "player" && a.shown && !a.audioOnly())
+		}
 		a.win.Invalidate()
 		a.doPlayer(func(*player.Player) error { return nil }, nil)
 	})
@@ -422,6 +445,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 	}
 	a.stopRecording()
 	if a.page != "player" && !keepBrowsing {
+		a.rememberHomeCatalog()
 		a.returnPage = a.page
 		a.focusMode = true
 	}
@@ -480,6 +504,9 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 			if err != nil {
 				a.busy = false
 				a.status = err.Error()
+				if strings.Contains(err.Error(), "未开播") {
+					a.removeOfflineRecommendation(p, id)
+				}
 				a.recordFailure("room", err.Error())
 				if s != nil && s.Room.Platform == platforms.FLive {
 					a.stream = s
@@ -741,9 +768,11 @@ func (a *app) quit() {
 			}
 		}
 	}
-	if a.library != nil && !a.opts.mute {
+	if a.library != nil {
 		prefs := a.library.Preferences
-		prefs.Volume = a.volume
+		if !a.opts.mute {
+			prefs.Volume = a.volume
+		}
 		if err := a.library.SetPreferences(prefs); err != nil {
 			log.Print("保存偏好设置失败：", err)
 		}
@@ -763,6 +792,8 @@ func (a *app) quit() {
 			a.clean = true
 			if a.parent != nil {
 				a.win.Close()
+			} else if a.restartAfterClose {
+				mygo.App.Relaunch()
 			} else {
 				mygo.App.Quit()
 			}

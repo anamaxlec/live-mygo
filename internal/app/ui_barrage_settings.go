@@ -33,7 +33,13 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 		return
 	}
 	prefs := a.library.Preferences
-	ui.Row(c).Gap(5).Padding(0, 0, 8, 0).AlignItems(ui.Center).Children(func() {
+	tabInset := float32(8)
+	tabHorizontalInset := float32(0)
+	if expanded {
+		tabInset = 0
+		tabHorizontalInset = settingsTextInset - filterTabPad
+	}
+	ui.Row(c).Gap(4).Padding(0, tabHorizontalInset, tabInset, tabHorizontalInset).AlignItems(ui.Center).Children(func() {
 		for i, label := range []string{"样式", "布局", "屏蔽"} {
 			if filterButton(c.Key(i), label, a.danmakuTab == i).Clicked() {
 				a.danmakuTab = i
@@ -47,14 +53,23 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 	ui.Column(c.Key("barrage-tab-content")).FillWidth().Clip().Children(func() {
 		ui.Column(c.Key(a.danmakuTab)).FillWidth().Transition(menuContentTransition).Children(func() {
 			if a.danmakuTab == 0 {
-				ui.Box(c.Key("caption-style-preview")).Height(62).FillWidth().Radius(9).Background(ui.Hex("#24262c")).Margin(0, 0, 9, 0).Clip().Label("弹幕效果预览").Draw(func(p *ui.Painter, r ui.Rect) {
+				ui.Box(c.Key("caption-style-preview")).Height(62).FillWidth().Radius(10).Background(ui.Hex("#24262c")).Margin(0, 0, 12, 0).Clip().Label("弹幕效果预览").Draw(func(p *ui.Painter, r ui.Rect) {
 					w, h := p.MeasureText(0, captionSpan("弹幕预览 Aa", prefs, ui.Hex("#ffffff")))
 					paintCaption(p, r.X+max(8, (r.W-w)/2), r.Y+(r.H-h)/2, "弹幕预览 Aa", captionColor(0xffffff, prefs.DanmakuColor), prefs)
 				})
 			}
 			_, height := c.Size()
+			divider := func() {
+				if expanded {
+					settingsDivider(c)
+				}
+			}
 			content := func() {
-				ui.Column(c).Gap(2).Children(func() {
+				gap := float32(2)
+				if expanded {
+					gap = 0
+				}
+				ui.Column(c).Gap(gap).Children(func() {
 					switch a.danmakuTab {
 					case 0:
 						font := "系统默认"
@@ -73,6 +88,7 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 								}
 							}
 						}
+						divider()
 						weight := map[int]string{400: "常规", 500: "中等", 600: "加粗", 700: "粗体"}[prefs.DanmakuWeight]
 						if weight == "" {
 							weight = "加粗"
@@ -82,7 +98,9 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 							next.DanmakuWeight = map[string]int{"常规": 400, "中等": 500, "加粗": 600, "粗体": 700}[weight]
 							a.savePreferences(next)
 						}
+						divider()
 						preferenceSlider(c, expanded, "字号", prefs.DanmakuSize, 16, 48, fmt.Sprintf("%.0f", prefs.DanmakuSize), func(v float64) { next := a.library.Preferences; next.DanmakuSize = v; a.previewPreferences(next) })
+						divider()
 						color := prefs.DanmakuColor
 						if color == "" {
 							color = "平台颜色"
@@ -92,7 +110,9 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 							next.DanmakuColor = color
 							a.savePreferences(next)
 						}
+						divider()
 						preferenceSlider(c, expanded, "描边", prefs.DanmakuStroke, 0, 3, fmt.Sprintf("%.1f px", prefs.DanmakuStroke), func(v float64) { next := a.library.Preferences; next.DanmakuStroke = v; a.previewPreferences(next) })
+						divider()
 						preferenceSlider(c, expanded, "不透明度", prefs.DanmakuOpacity, 20, 100, fmt.Sprintf("%.0f%%", prefs.DanmakuOpacity), func(v float64) { next := a.library.Preferences; next.DanmakuOpacity = v; a.previewPreferences(next) })
 					case 1:
 						fps := "流畅 · 60 fps"
@@ -106,18 +126,29 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 							next.DanmakuFPS = map[string]int{"省电 · 30 fps": 30, "流畅 · 60 fps": 60, "跟随屏幕": 120}[fps]
 							a.savePreferences(next)
 						}
+						divider()
 						preferenceSlider(c, expanded, "滚动速度", prefs.DanmakuSpeed, .5, 2, fmt.Sprintf("%.1f×", prefs.DanmakuSpeed), func(v float64) { next := a.library.Preferences; next.DanmakuSpeed = v; a.previewPreferences(next) })
+						divider()
 						preferenceSlider(c, expanded, "显示区域", prefs.DanmakuArea, .25, 1, fmt.Sprintf("%.0f%%", prefs.DanmakuArea*100), func(v float64) { next := a.library.Preferences; next.DanmakuArea = v; a.previewPreferences(next) })
+						divider()
 						preferenceSlider(c, expanded, "轨道行数", float64(prefs.DanmakuLines), 1, 16, fmt.Sprint(prefs.DanmakuLines), func(v float64) {
 							next := a.library.Preferences
 							next.DanmakuLines = int(math.Round(v))
 							a.previewPreferences(next)
 						})
+						divider()
 						preferenceSlider(c, expanded, "行距", prefs.DanmakuGap, 0, 24, fmt.Sprintf("%.0f px", prefs.DanmakuGap), func(v float64) { next := a.library.Preferences; next.DanmakuGap = v; a.previewPreferences(next) })
+						divider()
 						preferenceSlider(c, expanded, "上边距", prefs.DanmakuTop, 0, 100, fmt.Sprintf("%.0f px", prefs.DanmakuTop), func(v float64) { next := a.library.Preferences; next.DanmakuTop = v; a.previewPreferences(next) })
+						divider()
 						preferenceSlider(c, expanded, "下边距", prefs.DanmakuBottom, 0, 100, fmt.Sprintf("%.0f px", prefs.DanmakuBottom), func(v float64) { next := a.library.Preferences; next.DanmakuBottom = v; a.previewPreferences(next) })
-						ui.Box(c).Height(1).MarginY(9).Background(p.line)
+						if expanded {
+							settingsDivider(c)
+						} else {
+							ui.Box(c).Height(1).MarginY(9).Background(p.line)
+						}
 						preferenceSwitch(c, expanded, "窗口跟随画面比例", prefs.FollowVideo, func(bool) { a.toggleFollowVideo() })
+						divider()
 						mode := a.fitMode
 						if mode == "" {
 							mode = "适应"
@@ -127,13 +158,16 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 						}
 					case 2:
 						preferenceSwitch(c, expanded, "过滤画面重复弹幕", prefs.DanmakuMerge, func(v bool) { next := a.library.Preferences; next.DanmakuMerge = v; a.savePreferences(next) })
+						divider()
 						preferenceSwitch(c, expanded, "启用屏蔽规则", prefs.FilterEnabled, func(v bool) {
 							next := a.library.Preferences
 							next.FilterEnabled = v
 							a.savePreferences(next)
 							a.clearFlyingChat()
 						})
+						divider()
 						preferenceSwitch(c, expanded, "过滤重复消息", prefs.FilterDuplicates, func(v bool) { next := a.library.Preferences; next.FilterDuplicates = v; a.savePreferences(next) })
+						divider()
 						if preferenceAction(c, expanded, "关键词与用户屏蔽").Clicked() {
 							a.danmakuOpen = false
 							a.filterWindow()
@@ -142,7 +176,7 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 				})
 			}
 			if expanded {
-				ui.Column(c).Radius(10).Background(p.soft).Clip().Children(content)
+				settingsGroup(c, "", content)
 			} else {
 				ui.Scroll(c.Key(a.danmakuTab)).MaxHeight(max(100, min(390, height-240))).Children(content)
 				if ui.Button(c, "全部画面弹幕设置").FillWidth().Height(29).FontSize(11.5).Margin(8, 0, 0, 0).Clicked() {
@@ -157,7 +191,7 @@ func (a *app) barrageSettings(c *ui.Context, full ...bool) {
 // recommendedStyleButton 是次要操作，跟随内容列右缘而不是占用页面标题栏。
 func (a *app) recommendedStyleButton(c *ui.Context) {
 	p := colors(c.Theme())
-	b := ui.ButtonBase(c.Key("recommended-caption-style")).Height(28).PaddingX(9).Radius(7).Gap(6).AlignItems(ui.Center).Label("推荐样式")
+	b := ui.ButtonBase(c.Key("recommended-caption-style")).Height(settingsControlHeight).PaddingX(9).Radius(7).Gap(6).AlignItems(ui.Center).Label("推荐样式")
 	hovered := b.Hovered() || b.FocusVisible()
 	if hovered {
 		b.Background(p.hover)

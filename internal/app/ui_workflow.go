@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -22,6 +21,47 @@ func startupPage(page string) string {
 	return "home"
 }
 
+type homeCatalogState struct {
+	rooms   []platforms.Room
+	grid    ui.ListState
+	updated time.Time
+}
+
+func (a *app) rememberHomeCatalog() {
+	if a.page != "home" || a.catalogQuery != "" {
+		return
+	}
+	a.homeCatalog.grid = a.grid
+	if len(a.catalog) > 0 {
+		a.homeCatalog.rooms = a.catalog
+		if a.homeCatalog.updated.IsZero() {
+			a.homeCatalog.updated = time.Now()
+		}
+	}
+}
+
+// 缓存与当前浏览列表分开保存，切换平台不会丢掉首页内容和滚动位置。
+func (a *app) restoreHomeCatalog() bool {
+	a.catalog = a.homeCatalog.rooms
+	a.grid = a.homeCatalog.grid
+	a.catalogPage, a.catalogMore, a.catalogError = 1, false, ""
+	return !a.homeCatalog.updated.IsZero() && time.Since(a.homeCatalog.updated) < time.Minute
+}
+
+func (a *app) removeOfflineRecommendation(source platforms.Platform, id string) {
+	remove := func(rooms []platforms.Room) []platforms.Room {
+		out := make([]platforms.Room, 0, len(rooms))
+		for _, room := range rooms {
+			if room.Platform != source || room.ID != id {
+				out = append(out, room)
+			}
+		}
+		return out
+	}
+	a.homeCatalog.rooms = remove(a.homeCatalog.rooms)
+	a.catalog = remove(a.catalog)
+}
+
 func (a *app) loadHome() {
 	if a.catalogCancel != nil {
 		a.catalogCancel()
@@ -32,39 +72,57 @@ func (a *app) loadHome() {
 	gen := a.catalogGeneration
 	a.catalogLoading = true
 	a.catalogError = ""
-	a.catalogMore = false
+	a.catalogPage, a.catalogMore = 1, false
 	a.refreshFavorites(false)
-	go func() {
-		sources := []platforms.Platform{platforms.Bilibili, platforms.Douyu, platforms.Huya, platforms.Douyin, platforms.Qie}
-		results := make([][]platforms.Room, len(sources))
-		failures := make([]string, len(sources))
-		var wg sync.WaitGroup
-		for i, p := range sources {
-			wg.Add(1)
-			go func(i int, p platforms.Platform) {
-				defer wg.Done()
-				request, done := context.WithTimeout(ctx, 12*time.Second)
-				defer done()
-				result, err := a.client.Recommend(request, p, 1)
-				if err != nil {
-					failures[i] = p.Name() + "：" + err.Error()
+	sources := []platforms.Platform{platforms.Bilibili, platforms.Douyu, platforms.Huya, platforms.Douyin, platforms.Qie}
+	results := make([][]platforms.Room, len(sources))
+	failures := make([]string, len(sources))
+	remaining, succeeded := len(sources), false
+	for _, room := range a.homeCatalog.rooms {
+		for i, source := range sources {
+			if room.Platform == source {
+				results[i] = append(results[i], room)
+				break
+			}
+		}
+	}
+	for i, source := range sources {
+		go func(i int, source platforms.Platform) {
+			request, done := context.WithTimeout(ctx, 12*time.Second)
+			defer done()
+			result, err := a.client.Recommend(request, source, 1)
+			a.win.Update(func() {
+				if a.closing || gen != a.catalogGeneration || ctx.Err() != nil {
 					return
 				}
-				results[i] = result.Rooms
-			}(i, p)
-		}
-		wg.Wait()
-		a.win.Update(func() {
-			if a.closing || gen != a.catalogGeneration || ctx.Err() != nil {
-				return
-			}
-			a.catalog = mergeRecommendations(results)
-			a.catalogLoading = false
-			if len(a.catalog) == 0 {
-				a.catalogError = strings.Join(failures, "\n")
-			}
-		})
-	}()
+				remaining--
+				if err != nil {
+					failures[i] = source.Name() + "：" + err.Error()
+				} else {
+					succeeded = true
+					results[i] = result.Rooms
+				}
+				// 各来源到达后立即补入；刷新期间其他来源的已有卡片留在原处。
+				a.catalog = mergeRecommendations(results)
+				a.homeCatalog.rooms = a.catalog
+				a.catalogLoading = remaining > 0
+				if remaining == 0 {
+					if succeeded {
+						a.homeCatalog.updated = time.Now()
+					}
+					if len(a.catalog) == 0 {
+						var errors []string
+						for _, failure := range failures {
+							if failure != "" {
+								errors = append(errors, failure)
+							}
+						}
+						a.catalogError = strings.Join(errors, "\n")
+					}
+				}
+			})
+		}(i, source)
+	}
 }
 func mergeRecommendations(groups [][]platforms.Room) []platforms.Room {
 	out := []platforms.Room{}
@@ -75,7 +133,7 @@ func mergeRecommendations(groups [][]platforms.Room) []platforms.Room {
 			if i < len(g) {
 				added = true
 				r := g[i]
-				if !seen[roomKey(r)] {
+				if r.Live && !seen[roomKey(r)] {
 					out = append(out, r)
 					seen[roomKey(r)] = true
 				}
@@ -138,7 +196,10 @@ func (a *app) closePlayback() {
 	a.stop()
 	if a.page == "player" {
 		a.page = "home"
-		if a.win != nil {
+		a.focusMode = false
+		a.navReturn++
+		fresh := a.restoreHomeCatalog()
+		if a.win != nil && !fresh {
 			a.loadCatalog(1)
 		}
 	}

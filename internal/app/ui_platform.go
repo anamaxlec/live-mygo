@@ -56,7 +56,7 @@ func (a *app) normalMinimum() {
 }
 
 func (a *app) fitInitialWindow() {
-	if runtime.GOOS != "windows" || a.win == nil {
+	if a.win == nil || a.win.IsFullScreen() || a.win.IsMaximized() {
 		return
 	}
 	a.normalMinimum()

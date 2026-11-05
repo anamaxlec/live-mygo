@@ -36,7 +36,35 @@ func TestPlaybackBackendSelectorPersistsWithoutInterruptingRoom(t *testing.T) {
 	if a.library.Preferences.PlayerBackend != "vt" || a.page != "player" || !a.shown || a.title != "正在观看的房间" {
 		t.Fatal("切换设置不应停止当前房间")
 	}
-	if _, ok := tester.Find("重新打开应用后生效。当前使用：mpv"); !ok {
-		t.Fatal("未说明当前内核与生效时机")
+	if _, ok := tester.Find("重启以切换播放内核？"); !ok || !a.settings.backendRestartOpen {
+		t.Fatal("切换内核后未弹出重启选择")
+	}
+	if err := tester.Click("稍后再说"); err != nil {
+		t.Fatal(err)
+	}
+	if a.settings.backendRestartOpen || a.library.Preferences.PlayerBackend != "vt" || a.page != "player" || !a.shown {
+		t.Fatal("稍后重启应保留设置与当前播放")
+	}
+	if _, ok := tester.Find("当前使用：mpv"); !ok {
+		t.Fatal("未显示实际运行内核")
+	}
+	if err := tester.Click("重启生效"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.settings.backendRestartOpen {
+		t.Fatal("稍后重启入口不可用")
+	}
+	if err := tester.Click("稍后再说"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tester.Click("原生硬解（测试）"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("mpv"); err != nil {
+		t.Fatal(err)
+	}
+	if a.settings.backendRestartOpen {
+		t.Fatal("选择当前运行内核不应要求重启")
 	}
 }

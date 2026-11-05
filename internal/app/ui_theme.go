@@ -3,6 +3,7 @@
 package app
 
 import (
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/library"
 	"time"
@@ -51,6 +52,10 @@ func (a *app) applySavedPreferences(before, next library.Preferences) {
 }
 
 func (a *app) applyLocalPreferences(before, next library.Preferences) {
+	if a.parent == nil && a.win != nil && before.Appearance != next.Appearance {
+		// 同时更新 AppKit 材质、窗口底色与原生菜单，不能只更换 UI 画布的颜色。
+		mygo.Theme.SetSource(mygo.ThemeSource(next.Appearance))
+	}
 	if a.parent == nil && before.NotifyEnabled != next.NotifyEnabled {
 		a.notificationKnown = nil
 		a.armNotifications()

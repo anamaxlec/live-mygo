@@ -46,6 +46,7 @@ int vt_core_decode(VTCore *core, const uint8_t *data, int size,
 int vt_core_take_oldest(VTCore *core, void **frame, double *pts);
 int vt_core_take_newest(VTCore *core, void **frame, double *pts);
 int vt_core_queue_count(VTCore *core);
+int vt_core_pending_count(VTCore *core);
 void vt_core_flush_frames(VTCore *core);
 void vt_core_release_frame(void *frame);
 int vt_core_dropped(VTCore *core);
@@ -56,12 +57,12 @@ int vt_core_error(VTCore *core, char *err, int errlen);
 /* AAC playback through AVSampleBufferAudioRenderer. */
 void *vt_audio_create(int sample_rate, int channels, const uint8_t *extradata,
                       int size, char *err, int errlen);
-void vt_audio_reset(void *audio);
 void vt_audio_start(void *audio, double pts);
 int vt_audio_ready(void *audio);
 int vt_audio_enqueue(void *audio, const uint8_t *data, int size, double pts,
                      double duration, char *err, int errlen);
 double vt_audio_clock(void *audio);
+void vt_audio_timing(void *audio, double *clock, double *buffered, double *rate);
 void vt_audio_set_rate(void *audio, double rate);
 void vt_audio_set_volume(void *audio, double volume);
 void vt_audio_set_muted(void *audio, int muted);

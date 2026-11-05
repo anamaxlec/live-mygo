@@ -48,6 +48,10 @@ type Stats struct {
 	VideoCodec    string  `json:"video_codec"`
 	AudioCodec    string  `json:"audio_codec"`
 	AVSync        float64 `json:"av_sync_seconds"`
+	AudioClock    float64 `json:"audio_clock_seconds,omitempty"`
+	AudioBuffered float64 `json:"audio_buffered_seconds,omitempty"`
+	AudioRate     float64 `json:"audio_clock_rate,omitempty"`
+	VideoAhead    float64 `json:"video_queue_ahead_seconds,omitempty"`
 	Dropped       int     `json:"dropped_frames"`
 	DecodedFrames uint64  `json:"decoded_frames,omitempty"`
 	Visible       bool    `json:"video_surface_visible"`

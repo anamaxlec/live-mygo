@@ -154,17 +154,19 @@ func (a *app) notificationSettings(c *ui.Context) {
 		if !prefs.NotifyEnabled {
 			return
 		}
+		settingsDivider(c)
 		preferenceSwitch(c, true, "免打扰", prefs.NotifyQuiet, func(value bool) { next := a.library.Preferences; next.NotifyQuiet = value; a.savePreferences(next) })
+		settingsDivider(c)
 		settingsRow(c, "允许通知时段", func() {
 			hours := make([]string, 24)
 			for i := range hours {
 				hours[i] = fmt.Sprintf("%02d:00", i)
 			}
 			start, end := hours[max(0, min(23, prefs.NotifyStartHour))], hours[max(0, min(23, prefs.NotifyEndHour))]
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				changed := ui.Select(c, &start, hours).Width(85).Height(28).Label("通知开始时间").Changed()
-				ui.Text(c, "至").FontSize(11)
-				changed = ui.Select(c, &end, hours).Width(85).Height(28).Label("通知结束时间").Changed() || changed
+			ui.Row(c).Gap(3).AlignItems(ui.Center).Children(func() {
+				changed := ui.Select(c, &start, hours).Width(76).Height(settingsControlHeight).FontSize(12).Label("通知开始时间").Changed()
+				ui.Text(c, "至").FontSize(11).Width(12).TextAlign(ui.Center)
+				changed = ui.Select(c, &end, hours).Width(76).Height(settingsControlHeight).FontSize(12).Label("通知结束时间").Changed() || changed
 				if changed {
 					next := a.library.Preferences
 					next.NotifyStartHour, _ = strconv.Atoi(start[:2])
@@ -173,13 +175,14 @@ func (a *app) notificationSettings(c *ui.Context) {
 				}
 			})
 		})
+		settingsDivider(c)
 		settingsRow(c, "通知间隔", func() {
 			interval := prefs.NotifyInterval
 			if interval < 5 {
 				interval = 10
 			}
 			label := fmt.Sprintf("%d 分钟", interval)
-			if ui.Select(c, &label, []string{"5 分钟", "10 分钟", "15 分钟", "30 分钟", "60 分钟"}).Width(116).Height(28).Label("开播通知最短间隔").Changed() {
+			if ui.Select(c, &label, []string{"5 分钟", "10 分钟", "15 分钟", "30 分钟", "60 分钟"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("开播通知最短间隔").Changed() {
 				next := a.library.Preferences
 				next.NotifyInterval, _ = strconv.Atoi(strings.TrimSuffix(label, " 分钟"))
 				a.savePreferences(next)

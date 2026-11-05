@@ -129,7 +129,7 @@ func (a *app) view(c *ui.Context) {
 		// 浏览页同样滑出侧栏，而不是瞬间切换宽度。
 		duration = 200 * time.Millisecond
 	}
-	a.navWidth = desktop.AnimateTo("navigation-width", target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
+	a.navWidth = desktop.AnimateTo(fmt.Sprintf("navigation-width-%d", a.navReturn), target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
 	a.navMeasured = true
 	desktop.Children(func() {
 		side := ui.Column(c.Key("navigation")).Width(a.navWidth).Shrink(0).FillHeight().Clip().Hidden(a.navWidth < .1)
@@ -152,7 +152,7 @@ func (a *app) view(c *ui.Context) {
 				if a.surface != nil {
 					a.surface.Show(false)
 				}
-				a.browseView(c)
+				ui.Box(c.Key("browse-page:" + a.page)).Fill().Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: ui.EaseOut, Colors: true, Enter: &ui.Motion{Opacity: .25}}).Children(func() { a.browseView(c) })
 			}
 		})
 	})
@@ -296,6 +296,7 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 			a.channelCardIdentity(c, r)
 		})
 		if b.Clicked() {
+			a.rememberHomeCatalog()
 			a.returnPage = a.page
 			a.page = "player"
 			a.focusMode = true
@@ -356,6 +357,13 @@ func (a *app) openPage(page string) {
 	if page == a.page && a.catalogQuery == "" {
 		return
 	}
+	a.rememberHomeCatalog()
+	if a.catalogCancel != nil {
+		a.catalogCancel()
+		a.catalogCancel = nil
+	}
+	a.catalogGeneration++
+	a.catalogLoading = false
 	a.leavePlayer()
 	a.page = page
 	// 首页和收藏页都优先展示关注的开播状态；冷却时间避免每次切页都请求。
@@ -379,6 +387,12 @@ func (a *app) openPage(page string) {
 		a.catalogQuery = ""
 		a.category = platforms.Category{}
 		a.roomInput = ""
+		if page == "home" {
+			if !a.restoreHomeCatalog() {
+				a.loadCatalog(1)
+			}
+			return
+		}
 		a.catalog = nil
 		a.loadCatalog(1)
 		a.loadCategories(a.platform())
@@ -397,6 +411,13 @@ func (a *app) backToBrowse() {
 	a.page = page
 	// 从播放页返回浏览时恢复侧栏，搜索框和导航不必再靠左上角开关找回。
 	a.focusMode = false
+	// 自动返回时直接恢复浏览布局，手动开关侧栏才做宽度过渡。
+	a.navReturn++
+	if page == "home" && !a.homeCatalog.updated.IsZero() {
+		if !a.restoreHomeCatalog() && !a.catalogLoading {
+			a.loadCatalog(1)
+		}
+	}
 	if (page == "home" || page == "bilibili" || page == "douyu" || page == "huya" || page == "douyin" || page == "qie" || page == string(platforms.FLive)) && len(a.catalog) == 0 && !a.catalogLoading {
 		a.loadCatalog(1)
 	}
@@ -417,6 +438,7 @@ func (a *app) submitSearch() {
 		}
 		return
 	}
+	a.rememberHomeCatalog()
 	a.page = string(a.platform())
 	a.catalogQuery = query
 	a.catalog = nil

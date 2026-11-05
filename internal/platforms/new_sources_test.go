@@ -32,6 +32,33 @@ func TestNewSourceLinksAndQieSignature(t *testing.T) {
 	}
 }
 
+func TestRecommendationFeedsExcludeOfflineRooms(t *testing.T) {
+	for _, source := range []Platform{Douyin, Qie} {
+		t.Run(string(source), func(t *testing.T) {
+			c := NewClient(nil)
+			c.HTTP.Transport = chatTestTransport(func(req *http.Request) (*http.Response, error) {
+				header := make(http.Header)
+				var body string
+				switch req.URL.Host {
+				case "ttwid.bytedance.com":
+					header.Set("Set-Cookie", "ttwid=anonymous-test; Domain=.douyin.com; Path=/; Secure")
+				case "live.douyin.com":
+					body = `{"data":[{"web_rid":"1","data":{"title":"正在直播","status":2}},{"web_rid":"2","data":{"title":"已下播","status":4}}]}`
+				case "www.qie.tv":
+					body = `<script id="__NEXT_DATA__">{"props":{"initialState":{"homeInfo":{"data":{"live_room":[{"room_id":"1","room_name":"正在直播","show_status":"1"},{"room_id":"2","room_name":"已下播","show_status":"2","is_live":"1"}]}}}}}</script>`
+				default:
+					t.Errorf("unexpected request: %s", req.URL.Host)
+				}
+				return &http.Response{StatusCode: 200, Header: header, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			catalog, err := c.Recommend(context.Background(), source, 1)
+			if err != nil || len(catalog.Rooms) != 1 || catalog.Rooms[0].ID != "1" || !catalog.Rooms[0].Live {
+				t.Fatalf("未开播房间混入推荐：%+v %v", catalog, err)
+			}
+		})
+	}
+}
+
 func TestFlightDataSupportsBothPagePrefixes(t *testing.T) {
 	for _, prefix := range []string{"__pace_f", "__next_f"} {
 		args, _ := json.Marshal([]any{1, `e:["$","$L13",null,{"state":{"roomStore":{"roomInfo":{"roomId":"123","room":{"title":"标题中含有 ] 和引号 \"","status":2}}}}}]`})

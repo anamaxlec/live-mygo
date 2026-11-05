@@ -219,10 +219,8 @@ func (c *Client) douyinCatalog(ctx context.Context, page int) (Catalog, error) {
 		if id == "" {
 			id = item.Room.Owner.WebID
 		}
-		if id != "" {
-			r := item.Room.room(id)
-			r.Live = true
-			out.Rooms = append(out.Rooms, r)
+		if id != "" && item.Room.Status == 2 {
+			out.Rooms = append(out.Rooms, item.Room.room(id))
 		}
 	}
 	return out, nil

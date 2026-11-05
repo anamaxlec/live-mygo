@@ -30,7 +30,11 @@ func (r qieRoom) room() Room {
 	if id == "" {
 		id = strings.Trim(r.URL, "/")
 	}
-	return Room{Platform: Qie, ID: id, Title: r.Title, Anchor: r.Nick, Cover: strings.Replace(r.Cover, "http:", "https:", 1), Category: r.Game, Live: r.Live == "1" || r.IsLive == "1"}
+	live := r.Live == "1"
+	if r.Live == "" {
+		live = r.IsLive == "1"
+	}
+	return Room{Platform: Qie, ID: id, Title: r.Title, Anchor: r.Nick, Cover: strings.Replace(r.Cover, "http:", "https:", 1), Category: r.Game, Live: live}
 }
 
 type qiePageState struct {
@@ -94,7 +98,7 @@ func (c *Client) qieCatalog(ctx context.Context, category string) (Catalog, erro
 	out := Catalog{}
 	for _, r := range rooms {
 		item := r.room()
-		if item.ID != "" {
+		if item.ID != "" && item.Live {
 			out.Rooms = append(out.Rooms, item)
 		}
 	}

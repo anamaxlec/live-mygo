@@ -4,6 +4,7 @@ package player
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -246,4 +247,121 @@ func TestNativeStartupConsumesVideoBeforeDelayedAudio(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("先到达的视频包阻塞了首个音频包")
+}
+
+func TestNativeAudioClockStartsWithBoundedVideoQueue(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("需要 FFmpeg")
+	}
+	path := filepath.Join(t.TempDir(), "av-clock.mp4")
+	data, err := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=60", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "8", "-c:v", "libx264", "-bf", "0", "-c:a", "aac", "-ac", "2", path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("生成音视频样本：%v %s", err, data)
+	}
+	surface := &VTSurface{}
+	surface.visible.Store(true)
+	p := &vtPlayer{surface: surface, volume: 0}
+	defer p.Close()
+	if err := p.Load(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	// 检查实际时钟推进，不能以已提交首包或存在 AAC 音轨代替开始播放。
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	var first float64
+	for time.Now().Before(deadline) {
+		stats := p.Stats()
+		if stats.Error != "" {
+			t.Fatal(stats.Error)
+		}
+		if stats.AudioClock >= .1 {
+			first = stats.AudioClock
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if first == 0 {
+		t.Fatal("视频队列阻塞了解封装，系统音频时钟未启动", p.Stats())
+	}
+	started := time.Now()
+	time.Sleep(600 * time.Millisecond)
+	stats := p.Stats()
+	if advance := stats.AudioClock - first; advance < .45 || advance-time.Since(started).Seconds() > .15 {
+		t.Fatalf("音频时钟未连续推进：%.3f 秒", advance)
+	}
+	// 硬解与音频设备的首次初始化可错开，等待实际预填完成，而非假定第 600 ms 已填满。
+	deadline = time.Now().Add(time.Second)
+	for stats.AudioBuffered < .4 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		stats = p.Stats()
+	}
+	if stats.AudioBuffered < .4 || stats.AudioRate < .99 {
+		t.Fatal("音频仍被小型视频队列限制，未形成独立缓冲", stats)
+	}
+	for i := 0; i < 3; i++ {
+		before, at := p.Stats().AudioClock, time.Now()
+		surface.visible.Store(false)
+		time.Sleep(120 * time.Millisecond)
+		if stats = p.Stats(); stats.VideoAhead > .2 {
+			t.Fatal("后台清空了未来帧，切回前台仍需等待视频时钟追赶", stats)
+		}
+		surface.visible.Store(true)
+		time.Sleep(120 * time.Millisecond)
+		stats = p.Stats()
+		if delta := stats.AudioClock - before - time.Since(at).Seconds(); delta < -.1 || delta > .1 {
+			t.Fatal("窗口恢复可见时音频时钟中断或跳跃", stats)
+		}
+	}
+	if err := p.Command("set", "pause", "yes"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	paused := p.Stats().AudioClock
+	time.Sleep(100 * time.Millisecond)
+	if delta := p.Stats().AudioClock - paused; delta < -.02 || delta > .02 {
+		t.Fatal("暂停时音频时钟仍在推进", delta)
+	}
+	if err := p.Command("set", "pause", "no"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if delta := p.Stats().AudioClock - paused; delta < .1 || delta > .35 {
+		t.Fatal("本地续播清空了音频，未从暂停位置继续", delta)
+	}
+	t.Logf("音频状态：%+v", stats)
+}
+
+func TestNativeFLVAudioKeepsAnExactSampleTimeline(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("需要 FFmpeg")
+	}
+	path := filepath.Join(t.TempDir(), "quantized-audio.flv")
+	data, err := exec.Command(ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=60", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "5", "-c:v", "libx264", "-bf", "0", "-c:a", "aac", "-ac", "2", "-f", "flv", path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("生成毫秒量化的 FLV 样本：%v %s", err, data)
+	}
+	surface := &VTSurface{}
+	surface.visible.Store(true)
+	p := &vtPlayer{surface: surface, volume: 0}
+	defer p.Close()
+	if err := p.Load(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for p.Stats().AudioClock < .1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if p.Stats().AudioClock < .1 {
+		t.Fatal("FLV 音频时钟未启动")
+	}
+	for i := 0; i < 16; i++ {
+		stats := p.Stats()
+		// 此样本首个 AAC 时间戳为 0；每个缓冲尾部必须落在 1024 样本的网格上。
+		packets := (stats.AudioClock + stats.AudioBuffered) * 48000 / 1024
+		if stats.Error != "" || stats.AudioBuffered <= 0 || math.Abs(packets-math.Round(packets)) > .0001 {
+			t.Fatalf("AAC 缓冲仍使用 21 / 22 ms 的量化时间戳，存在重叠或间隙：%+v", stats)
+		}
+		time.Sleep(37 * time.Millisecond)
+	}
 }

@@ -64,6 +64,9 @@ func (a *app) openExtraRoom(room platforms.Room) {
 	child.win.SetAlwaysOnTop(true)
 	child.win.OnResize(child.windowResized)
 	child.win.OnFocus(func() {
+		if child.surface != nil {
+			child.surface.Show(child.page == "player" && child.shown && !child.minimized && !child.audioOnly())
+		}
 		if !child.companion && !child.win.IsFullScreen() {
 			child.win.SetTitle(child.win.Title())
 		}
@@ -101,7 +104,13 @@ func (a *app) openExtraRoom(room platforms.Room) {
 			child.surface.Show(false)
 		}
 	})
-	child.win.OnRestore(func() { child.minimized = false; child.win.Invalidate() })
+	child.win.OnRestore(func() {
+		child.minimized = false
+		if child.surface != nil {
+			child.surface.Show(child.page == "player" && child.shown && !child.audioOnly())
+		}
+		child.win.Invalidate()
+	})
 	backend := ""
 	if child.library != nil {
 		backend = child.library.Preferences.PlayerBackend

@@ -16,10 +16,10 @@ func (a *app) backupSettings(c *ui.Context) {
 	p := colors(c.Theme())
 	settingsGroup(c, "数据", func() {
 		settingsRow(c, "关注与偏好", func() {
-			if ui.Button(c, "导入").Width(76).Height(28).FontSize(12).Label("导入并合并备份").Tooltip("合并关注并导入偏好").Disabled(a.backupBusy).Clicked() {
+			if settingsAction(c, "导入").Label("导入并合并备份").Tooltip("合并关注并导入偏好").Disabled(a.backupBusy).Clicked() {
 				a.importBackup()
 			}
-			if ui.Button(c, "导出").Width(76).Height(28).FontSize(12).Label("导出备份").Tooltip("导出关注与偏好，不含账号和历史").Disabled(a.backupBusy).Clicked() {
+			if settingsAction(c, "导出").Label("导出备份").Tooltip("导出关注与偏好，不含账号和历史").Disabled(a.backupBusy).Clicked() {
 				a.exportBackup()
 			}
 		})

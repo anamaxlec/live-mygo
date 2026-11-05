@@ -154,67 +154,82 @@ func (a *app) checkUpdates() {
 
 func (a *app) updateControls(c *ui.Context) {
 	p := colors(c.Theme())
-	ui.Row(c).FillWidth().Gap(8).Children(func() {
-		label := "检查更新"
-		if a.updates.loading {
-			label = "正在检查"
-		}
-		if ui.Button(c, label).Grow(1).Basis(0).Height(30).FontSize(12).Disabled(a.updates.loading).Clicked() {
-			a.checkUpdates()
-		}
-		if ui.Button(c, "导出诊断报告").Grow(1).Basis(0).Height(30).FontSize(12).Disabled(a.diagnosticsExporting).Clicked() {
-			a.exportDiagnostics()
-		}
-	})
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "更新通道").FontSize(11.5).TextColor(p.muted).Grow(1)
-		channel := "正式版"
-		if a.betaUpdates() {
-			channel = "测试版"
-		}
-		if ui.Select(c, &channel, []string{"正式版", "测试版"}).Width(116).Height(28).FontSize(11.5).Label("更新通道").Disabled(a.updates.loading).Changed() && a.library != nil {
-			next := a.library.Preferences
-			next.UpdateChannel = "stable"
-			if channel == "测试版" {
-				next.UpdateChannel = "beta"
-			}
-			a.savePreferences(next)
-			a.updates = releaseCheckState{}
-		}
-	})
-	if a.settings.message != "" {
-		ui.Text(c, a.settings.message).FontSize(11.5).TextColor(p.muted).MaxLines(2)
-	}
-	if runtime.GOOS == "darwin" && ui.Button(c, "打开系统崩溃报告").FillWidth().Height(28).FontSize(11.5).Clicked() {
-		a.openCrashReports()
-	}
-	if !a.updates.checked {
-		return
-	}
-	if a.updates.failed || len(a.updates.releases) == 0 {
-		ui.Text(c, "暂时没有获取到版本信息").FontSize(11.5).TextColor(p.muted)
-		if ui.Button(c, "打开版本页面").FillWidth().Height(30).Clicked() {
-			c.OpenURL(releasePage)
-		}
-		return
-	}
-	latest := a.updates.releases[0]
-	label := "当前已是最新版本"
-	if compareReleaseVersions(latest.Tag, appVersion) > 0 {
-		label = "可更新至 " + strings.TrimPrefix(latest.Tag, "v")
-	}
-	ui.Text(c, label).FontSize(11.5).TextColor(p.muted)
-	ui.Row(c).FillWidth().Gap(8).Children(func() {
-		if ui.Button(c, "查看版本 "+strings.TrimPrefix(latest.Tag, "v")).Grow(1).Basis(0).Height(30).FontSize(11.5).Clicked() {
-			c.OpenURL(releasePage + "/tag/" + url.PathEscape(latest.Tag))
-		}
-		for _, release := range a.updates.releases {
-			if compareReleaseVersions(release.Tag, appVersion) < 0 {
-				if ui.Button(c, "上一版 "+strings.TrimPrefix(release.Tag, "v")).Grow(1).Basis(0).Height(30).FontSize(11.5).Clicked() {
-					c.OpenURL(releasePage + "/tag/" + url.PathEscape(release.Tag))
+	ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
+		settingsGroup(c, "更新", func() {
+			settingsRow(c, "更新通道", func() {
+				channel := "正式版"
+				if a.betaUpdates() {
+					channel = "测试版"
 				}
-				break
+				if ui.Select(c, &channel, []string{"正式版", "测试版"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("更新通道").Disabled(a.updates.loading).Changed() && a.library != nil {
+					next := a.library.Preferences
+					next.UpdateChannel = "stable"
+					if channel == "测试版" {
+						next.UpdateChannel = "beta"
+					}
+					a.savePreferences(next)
+					a.updates = releaseCheckState{}
+				}
+			})
+			settingsDivider(c)
+			settingsRow(c, "应用更新", func() {
+				label := "检查更新"
+				if a.updates.loading {
+					label = "正在检查"
+				}
+				if settingsAction(c, label).Label("检查软件更新").Disabled(a.updates.loading).Clicked() {
+					a.checkUpdates()
+				}
+			})
+			if a.updates.checked {
+				settingsDivider(c)
+				if a.updates.failed || len(a.updates.releases) == 0 {
+					settingsRow(c, "暂时无法获取版本信息", func() {
+						if settingsAction(c, "版本页面").Label("打开版本页面").Clicked() {
+							c.OpenURL(releasePage)
+						}
+					})
+				} else {
+					latest := a.updates.releases[0]
+					label := "当前已是最新版本"
+					if compareReleaseVersions(latest.Tag, appVersion) > 0 {
+						label = "可更新至 " + strings.TrimPrefix(latest.Tag, "v")
+					}
+					previous := ""
+					for _, release := range a.updates.releases {
+						if compareReleaseVersions(release.Tag, appVersion) < 0 {
+							previous = release.Tag
+							break
+						}
+					}
+					settingsRow(c, label, func() {
+						if latest.Tag != previous && settingsAction(c, "版本详情").Label("查看版本 "+latest.Tag).Clicked() {
+							c.OpenURL(releasePage + "/tag/" + url.PathEscape(latest.Tag))
+						}
+						if previous != "" && settingsAction(c, "上一版本").Label("查看上一版本 "+previous).Clicked() {
+							c.OpenURL(releasePage + "/tag/" + url.PathEscape(previous))
+						}
+					})
+				}
 			}
+		})
+		settingsGroup(c, "诊断", func() {
+			settingsRow(c, "播放诊断", func() {
+				if settingsAction(c, "导出报告").Label("导出诊断报告").Disabled(a.diagnosticsExporting).Clicked() {
+					a.exportDiagnostics()
+				}
+			})
+			if runtime.GOOS == "darwin" {
+				settingsDivider(c)
+				settingsRow(c, "系统崩溃报告", func() {
+					if settingsAction(c, "打开文件夹").Label("打开系统崩溃报告").Clicked() {
+						a.openCrashReports()
+					}
+				})
+			}
+		})
+		if a.settings.message != "" {
+			ui.Text(c, a.settings.message).FontSize(11.5).TextColor(p.muted).MaxLines(2).PaddingX(15)
 		}
 	})
 }

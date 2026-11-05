@@ -1,12 +1,42 @@
 package library
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"live-mygo/internal/platforms"
 )
+
+func TestWindowStatePersistsLocallyWithoutEnteringBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.json")
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.WindowStates = []byte(`{"main":{"width":1360,"height":860}}`)
+	if err := s.SetPreferences(s.Preferences); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal("重启后窗口状态丢失", reloaded, err)
+	}
+	var states map[string]struct{ Width, Height int }
+	if err := json.Unmarshal(reloaded.WindowStates, &states); err != nil || states["main"].Width != 1360 || states["main"].Height != 860 {
+		t.Fatal("保存后的窗口边界不符", states, err)
+	}
+	backup, err := reloaded.Backup()
+	if err != nil || bytes.Contains(backup, []byte("window_states")) {
+		t.Fatal("设备窗口状态不应进入偏好备份", err)
+	}
+	windowStateBefore := string(reloaded.WindowStates)
+	if err := reloaded.ImportBackup(backup); err != nil || string(reloaded.WindowStates) != windowStateBefore {
+		t.Fatal("导入偏好覆盖了本机窗口状态", err)
+	}
+}
 
 func TestPersistenceAndPlatformIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.json")

@@ -30,17 +30,18 @@ import (
 const vtBackendAvailable = true
 
 type VTSurface struct {
-	keepAspect   atomic.Bool
-	fillVideo    atomic.Bool
-	view         unsafe.Pointer
-	visible      atomic.Bool
-	rendered     atomic.Uint64
-	resizes      atomic.Uint64
-	maxResizeNS  atomic.Int64
-	width        atomic.Int64
-	height       atomic.Int64
-	cornerRadius float64
-	cornerRight  bool
+	keepAspect        atomic.Bool
+	fillVideo         atomic.Bool
+	view              unsafe.Pointer
+	visible           atomic.Bool
+	visibilityChanged chan struct{}
+	rendered          atomic.Uint64
+	resizes           atomic.Uint64
+	maxResizeNS       atomic.Int64
+	width             atomic.Int64
+	height            atomic.Int64
+	cornerRadius      float64
+	cornerRight       bool
 }
 
 func newVTSurface(window uintptr) (VideoSurface, error) {
@@ -48,7 +49,7 @@ func newVTSurface(window uintptr) (VideoSurface, error) {
 	if view == nil {
 		return nil, errors.New("无法创建 CAMetalLayer 视频视图")
 	}
-	s := &VTSurface{view: view}
+	s := &VTSurface{view: view, visibilityChanged: make(chan struct{}, 1)}
 	s.keepAspect.Store(true)
 	return s, nil
 }
@@ -56,7 +57,12 @@ func newVTSurface(window uintptr) (VideoSurface, error) {
 func (s *VTSurface) Show(show bool) {
 	var visible C.int
 	C.vt_view_show(s.view, boolInt(show), &visible)
-	s.visible.Store(visible != 0)
+	if s.visible.Swap(visible != 0) != (visible != 0) {
+		select {
+		case s.visibilityChanged <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (s *VTSurface) SetBounds(x, y, w, h, windowHeight float64) bool {
@@ -169,6 +175,12 @@ type vtPlayer struct {
 	presentOK    atomic.Int64
 	presentFail  atomic.Int64
 	lastFrameAt  time.Time
+}
+
+type vtVideoPacket struct {
+	data     []byte
+	pts, dts C.double
+	key      C.int
 }
 
 func newVTPlayer(surface VideoSurface) (*Player, error) {
@@ -299,14 +311,18 @@ func (p *vtPlayer) load(target string, headers map[string]string) error {
 	p.presentOK.Store(0)
 	p.presentFail.Store(0)
 
-	p.wg.Add(2)
-	go p.demuxLoop(ctx, core)
+	// 仅缓存压缩包，让音频能领先视频队列读取；解码后的像素缓冲仍限制在 12 帧内。
+	video := make(chan vtVideoPacket, max(30, min(240, int(math.Ceil(p.fps)))))
+	p.wg.Add(3)
+	go p.demuxLoop(ctx, core, video)
+	go p.decodeLoop(ctx, cancel, core, video)
 	go p.renderLoop(ctx, core)
 	return nil
 }
 
-func (p *vtPlayer) demuxLoop(ctx context.Context, core *C.VTCore) {
+func (p *vtPlayer) demuxLoop(ctx context.Context, core *C.VTCore, video chan<- vtVideoPacket) {
 	defer p.wg.Done()
+	defer close(video)
 	for {
 		select {
 		case <-ctx.Done():
@@ -331,9 +347,6 @@ func (p *vtPlayer) demuxLoop(ctx context.Context, core *C.VTCore) {
 		var errBuf [512]C.char
 		result := C.vt_core_read(core, &data, &size, &pts, &dts, &key, &kind, &errBuf[0], C.int(len(errBuf)))
 		if result == 1 {
-			p.mu.Lock()
-			p.idle = true
-			p.mu.Unlock()
 			return
 		}
 		if result < 0 {
@@ -369,14 +382,57 @@ func (p *vtPlayer) demuxLoop(ctx context.Context, core *C.VTCore) {
 			p.enqueueAudio(ctx, audio, payload, float64(pts))
 			continue
 		}
-		if C.vt_core_decode(core, (*C.uint8_t)(unsafe.Pointer(&payload[0])), C.int(len(payload)),
-			pts, dts, key, &errBuf[0], C.int(len(errBuf))) != 0 {
+		select {
+		case video <- vtVideoPacket{data: payload, pts: pts, dts: dts, key: key}:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *vtPlayer) decodeLoop(ctx context.Context, cancel context.CancelFunc, core *C.VTCore, video <-chan vtVideoPacket) {
+	defer p.wg.Done()
+	for {
+		var packet vtVideoPacket
+		select {
+		case <-ctx.Done():
+			return
+		case next, ok := <-video:
+			if !ok {
+				p.mu.Lock()
+				p.idle = true
+				p.mu.Unlock()
+				return
+			}
+			packet = next
+		}
+		p.mu.Lock()
+		paused, audioOnly := p.paused, p.audioOnly
+		p.mu.Unlock()
+		for paused {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+			p.mu.Lock()
+			paused, audioOnly = p.paused, p.audioOnly
+			p.mu.Unlock()
+		}
+		if audioOnly {
+			continue
+		}
+		var errBuf [512]C.char
+		if C.vt_core_decode(core, (*C.uint8_t)(unsafe.Pointer(&packet.data[0])), C.int(len(packet.data)),
+			packet.pts, packet.dts, packet.key, &errBuf[0], C.int(len(errBuf))) != 0 {
 			if ctx.Err() == nil {
 				p.setError(vtErrorMessage(errBuf[:]))
 			}
+			cancel()
 			return
 		}
-		for C.vt_core_queue_count(core) > 8 {
+		// 同时计入尚未回调的异步硬解帧，避免只看输出队列时一次提交过多。
+		for C.vt_core_pending_count(core) > 8 {
 			select {
 			case <-ctx.Done():
 				return
@@ -389,16 +445,8 @@ func (p *vtPlayer) demuxLoop(ctx context.Context, core *C.VTCore) {
 func (p *vtPlayer) enqueueAudio(ctx context.Context, audio unsafe.Pointer, payload []byte, pts float64) {
 	p.mu.Lock()
 	rate := p.audioRate
-	if !p.audioStarted {
-		C.vt_audio_start(audio, C.double(pts))
-		if p.paused {
-			C.vt_audio_set_rate(audio, 0)
-		}
-		p.audioStarted = true
-	}
 	p.mu.Unlock()
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for C.vt_audio_ready(audio) == 0 && time.Now().Before(deadline) {
+	for C.vt_audio_ready(audio) == 0 {
 		select {
 		case <-ctx.Done():
 			return
@@ -418,7 +466,18 @@ func (p *vtPlayer) enqueueAudio(ctx context.Context, audio unsafe.Pointer, paylo
 		p.basePts = -1
 		p.mu.Unlock()
 		C.vt_audio_set_rate(audio, 0)
+		return
 	}
+	p.mu.Lock()
+	if !p.audioStarted {
+		// 先提交首包，再启动音频时钟，避免蓝牙设备初始化时空跑。
+		C.vt_audio_start(audio, C.double(pts))
+		if p.paused {
+			C.vt_audio_set_rate(audio, 0)
+		}
+		p.audioStarted = true
+	}
+	p.mu.Unlock()
 }
 
 func (p *vtPlayer) renderLoop(ctx context.Context, core *C.VTCore) {
@@ -438,6 +497,8 @@ func (p *vtPlayer) renderLoop(ctx context.Context, core *C.VTCore) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+		case <-p.surface.visibilityChanged:
+			next = 10 * time.Millisecond
 		}
 		timer.Reset(next)
 		next = 10 * time.Millisecond
@@ -517,19 +578,34 @@ func (p *vtPlayer) renderLoop(ctx context.Context, core *C.VTCore) {
 			p.lastFrameAt = time.Now()
 			lastFrame = p.lastFrameAt
 			p.basePts = -1
-			if audio != nil && !audioFailed {
-				C.vt_audio_reset(audio)
-				p.audioStarted = false
-				p.audioWait = time.Time{}
-			}
 			p.mu.Unlock()
 			base = -1
 		}
 		wasVisible = visible
 		if !visible {
-			// 音频继续播放时不能让视频队列堵住解封装，否则恢复后音频时钟
-			// 已领先旧视频数分钟，导致持续丢帧。隐藏期间只丢弃视频输出。
-			C.vt_core_flush_frames(core)
+			// 仅消费已经到时的帧，保留提前解码的画面；全部清空会让
+			// 后台解码跑到音频缓冲前端，切回时反而需要等待未来帧到时。
+			target := base + time.Since(started).Seconds()
+			if useAudio {
+				target = clock
+			}
+			var oldest C.double
+			var count C.int
+			C.vt_core_peek_pts(core, &oldest, nil, &count)
+			if !useAudio && base < 0 && count > 0 {
+				p.mu.Lock()
+				p.basePts, p.started = float64(oldest), time.Now()
+				p.mu.Unlock()
+				target = float64(oldest)
+			}
+			for count > 0 && float64(oldest) <= target {
+				var frame unsafe.Pointer
+				if C.vt_core_take_oldest(core, &frame, nil) == 0 {
+					break
+				}
+				C.vt_core_release_frame(frame)
+				C.vt_core_peek_pts(core, &oldest, nil, &count)
+			}
 			next = 100 * time.Millisecond
 			continue
 		}
@@ -690,27 +766,34 @@ func (p *vtPlayer) Stats() Stats {
 	audioFailed := p.audioFailed
 	audioCodec := ""
 	avSync := 0.0
+	var audioClock, audioBuffered, audioRate C.double
 	if audio != nil && !audioFailed {
 		audioCodec = "aac"
-		if clock := float64(C.vt_audio_clock(audio)); !math.IsNaN(clock) {
+		C.vt_audio_timing(audio, &audioClock, &audioBuffered, &audioRate)
+		if clock := float64(audioClock); !math.IsNaN(clock) {
 			avSync = clock - p.lastPts
+		} else {
+			audioClock = 0
 		}
 	}
 	stats := Stats{
-		Position:   p.position,
-		Width:      p.width,
-		Height:     p.height,
-		FPS:        p.fps,
-		Hardware:   "videotoolbox",
-		VideoCodec: p.codec,
-		AudioCodec: audioCodec,
-		AVSync:     avSync,
-		Dropped:    p.dropped,
-		Visible:    p.surface.visible.Load(),
-		Paused:     p.paused,
-		Muted:      p.muted,
-		Idle:       core == nil || (p.idle && C.vt_core_queue_count(core) == 0),
-		Error:      p.errMsg,
+		Position:      p.position,
+		Width:         p.width,
+		Height:        p.height,
+		FPS:           p.fps,
+		Hardware:      "videotoolbox",
+		VideoCodec:    p.codec,
+		AudioCodec:    audioCodec,
+		AVSync:        avSync,
+		AudioClock:    float64(audioClock),
+		AudioBuffered: float64(audioBuffered),
+		AudioRate:     float64(audioRate),
+		Dropped:       p.dropped,
+		Visible:       p.surface.visible.Load(),
+		Paused:        p.paused,
+		Muted:         p.muted,
+		Idle:          core == nil || (p.idle && C.vt_core_queue_count(core) == 0),
+		Error:         p.errMsg,
 	}
 	if p.audioOnly {
 		stats.Hardware = ""
@@ -722,6 +805,14 @@ func (p *vtPlayer) Stats() Stats {
 	if core != nil {
 		stats.Dropped = int(C.vt_core_dropped(core)) + int(p.droppedLocal.Load())
 		stats.DecodedFrames = uint64(C.vt_core_decoded(core))
+		if stats.AudioRate > 0 {
+			var oldest C.double
+			var count C.int
+			C.vt_core_peek_pts(core, &oldest, nil, &count)
+			if count > 0 {
+				stats.VideoAhead = float64(oldest) - stats.AudioClock
+			}
+		}
 		if stats.Width == 0 {
 			stats.Width = int(C.vt_core_width(core))
 			stats.Height = int(C.vt_core_height(core))
@@ -818,8 +909,7 @@ func (p *vtPlayer) Command(args ...string) error {
 					p.basePts = -1
 					p.audioWait = time.Time{}
 					if audio != nil && !p.audioFailed {
-						C.vt_audio_reset(audio)
-						p.audioStarted = false
+						C.vt_audio_set_rate(audio, 1)
 					}
 				}
 			}

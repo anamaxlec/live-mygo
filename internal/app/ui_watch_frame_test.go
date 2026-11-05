@@ -108,6 +108,33 @@ func TestWatchChromeRevealsSystemMaterialWhileChatStaysOpaque(t *testing.T) {
 	}
 }
 
+func TestCustomAppearanceCoversAllFourCornerBackdrops(t *testing.T) {
+	for _, appearance := range []string{"light", "dark"} {
+		a := polishApp(t)
+		a.page, a.focusMode = "player", true
+		a.library.Preferences.Appearance = appearance
+		tester := ui.NewTester(a.view, 1180, 780)
+		tester.SetVibrancy(true)
+		frame, _ := tester.Find("直播间内容容器")
+		img := tester.Image()
+		header := img.RGBAAt(500, 24)
+		for _, x := range []int{int(frame.X + 1), int(frame.X + frame.W - 2)} {
+			for _, y := range []int{int(frame.Y + 1), int(frame.Y + frame.H - 2)} {
+				corner := img.RGBAAt(x, y)
+				if corner.A != 255 || corner.R != header.R || corner.G != header.G || corner.B != header.B {
+					t.Fatalf("%s 外观的圆角仍透出另一层底色：corner=%+v header=%+v x=%d y=%d", appearance, corner, header, x, y)
+				}
+			}
+		}
+		// 外侧补色不应盖住视频内部。
+		inside := img.RGBAAt(int(frame.X+7), int(frame.Y+7))
+		video := img.RGBAAt(int(frame.X+40), int(frame.Y+7))
+		if inside != video {
+			t.Fatal("圆角底板侵入了视频", appearance, inside, video)
+		}
+	}
+}
+
 func TestChatBackgroundRoundsWithoutOuterWatchClip(t *testing.T) {
 	for _, legacy := range []string{`{}`, `{"chat_follow":true,"chat_official":true}`} {
 		a := polishApp(t)

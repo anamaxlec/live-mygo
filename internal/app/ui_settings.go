@@ -21,11 +21,20 @@ const (
 	settingsChat
 )
 
+const (
+	settingsSectionGap    = 24
+	settingsControlWidth  = 170
+	settingsControlHeight = 30
+	settingsActionWidth   = 88
+	settingsTextInset     = 15
+)
+
 type settingsState struct {
 	tab                         int
 	imported, message, selected string
 	manual                      bool
 	versionTaps                 int
+	backendRestartOpen          bool
 }
 
 func (a *app) accountsWindow() { a.settingsWindow(settingsAccounts) }
@@ -41,7 +50,7 @@ func (a *app) settingsWindow(initialTab int) {
 	}
 	a.settings.selected = "哔哩哔哩"
 	a.settings.imported = ""
-	a.accountWin = mygo.NewWindow(mygo.WindowOptions{Title: "设置 · Live MyGo", Width: 820, Height: 640, MinWidth: 760, MinHeight: 540, TitleBarStyle: mygo.TitleBarHidden, BackgroundColor: "light-dark(#ffffff,#171719)", Parent: a.win, Content: ui.View(a.settingsView)})
+	a.accountWin = mygo.NewWindow(mygo.WindowOptions{Title: "设置 · Live MyGo", StateKey: "settings", Width: 820, Height: 640, MinWidth: 760, MinHeight: 540, TitleBarStyle: mygo.TitleBarHidden, BackgroundColor: "light-dark(#ffffff,#171719)", Parent: a.win, Content: ui.View(a.settingsView)})
 	a.accountWin.OnClose(func(*mygo.CloseEvent) { a.settings.imported = "" })
 	a.accountWin.OnClosed(func() {
 		if !a.closing && a.win != nil && !a.win.IsDestroyed() {
@@ -58,7 +67,7 @@ func (a *app) settingsView(c *ui.Context) {
 		}
 	})
 	c.OnShortcut(0, ui.KeyEscape, func() {
-		if a.accountWin != nil {
+		if a.accountWin != nil && !a.settings.backendRestartOpen {
 			a.accountWin.Close()
 		}
 	})
@@ -76,7 +85,9 @@ func (a *app) settingsView(c *ui.Context) {
 	}
 	ui.Row(c).Fill().Background(p.bg).Children(func() {
 		ui.Column(c).Width(174).Shrink(0).FillHeight().Padding(65, 12, 18, 12).Gap(4).Background(p.soft).Children(func() {
-			ui.Text(c, "设置").FontSize(11).FontWeight(500).TextColor(p.muted).Padding(0, 10, 10, 10)
+			ui.Row(c).FillWidth().Padding(0, 0, 10, 36).Children(func() {
+				ui.Text(c, "设置").FontSize(11.5).FontWeight(500).TextColor(p.muted)
+			})
 			for _, tab := range tabs {
 				b := ui.ButtonBase(c.Key(tab.id)).FillWidth().Height(36).Radius(8).PaddingX(10).Gap(10).AlignItems(ui.Center).Justify(ui.Start).Label("设置分类：" + tab.label)
 				buttonFeedback(b, p)
@@ -105,7 +116,7 @@ func (a *app) settingsView(c *ui.Context) {
 					title = tab.label
 				}
 			}
-			ui.Row(c).Height(76).Padding(20, titlebarRight(c, 26), 12, 26).AlignItems(ui.Center).DragWindow().Children(func() {
+			ui.Row(c).Height(76).Padding(20, titlebarRight(c, 26+settingsTextInset), 12, 26+settingsTextInset).AlignItems(ui.Center).DragWindow().Children(func() {
 				ui.Text(c, title).FontSize(21).FontWeight(650).TextColor(p.text).Grow(1)
 			})
 			ui.Scroll(c.Key(a.settings.tab)).Grow(1).MinHeight(0).Padding(4, 26, 26, 26).Transition(menuContentTransition).Children(func() {
@@ -119,11 +130,11 @@ func (a *app) settingsView(c *ui.Context) {
 				case settingsPlayback:
 					a.playbackSettings(c)
 				case settingsBarrage:
-					ui.Column(c).Gap(14).Children(func() {
+					ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
 						settingsGroup(c, "", func() {
 							preferenceSwitch(c, true, "显示画面弹幕", a.library.Preferences.Danmaku, func(v bool) { next := a.library.Preferences; next.Danmaku = v; a.savePreferences(next) })
 						})
-						a.barrageSettings(c, true)
+						ui.Column(c).FillWidth().Gap(12).Children(func() { a.barrageSettings(c, true) })
 					})
 				case settingsChat:
 					a.chatSettingsContent(c, true)
@@ -135,19 +146,28 @@ func (a *app) settingsView(c *ui.Context) {
 			})
 		})
 	})
+	if ui.AlertDialog(c.Key("backend-restart"), &a.settings.backendRestartOpen, "重启以切换播放内核？", "设置已保存。重启会停止当前播放，并使用新的播放内核。", "稍后再说", "立即重启") == 1 {
+		root := a.rootApp()
+		root.restartAfterClose = true
+		root.quit()
+	}
 }
 
 func settingsGroup(c *ui.Context, title string, body func()) {
 	p := colors(c.Theme())
-	ui.Column(c).Gap(9).Children(func() {
+	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		if title != "" {
-			ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.muted).PaddingX(3)
+			ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(p.muted).PaddingX(settingsTextInset)
 		}
-		ui.Column(c).Radius(10).Background(p.soft).Clip().Children(body)
+		ui.Column(c).FillWidth().Radius(10).Background(p.soft).Clip().Children(body)
 	})
 }
 func settingsDivider(c *ui.Context) {
-	ui.Box(c).Height(1).MarginX(15).Background(colors(c.Theme()).line)
+	ui.Box(c).Height(1).MarginX(settingsTextInset).Background(colors(c.Theme()).line)
+}
+
+func settingsAction(c *ui.Context, label string) ui.Element {
+	return ui.Button(c, label).Width(settingsActionWidth).Height(settingsControlHeight).PaddingX(10).Radius(7).FontSize(12)
 }
 
 func preferenceSelect(c *ui.Context, full bool, label string, value *string, choices []string) bool {
@@ -156,7 +176,7 @@ func preferenceSelect(c *ui.Context, full bool, label string, value *string, cho
 	}
 	changed := false
 	settingsRow(c, label, func() {
-		changed = ui.Select(c, value, choices).Width(170).Height(30).FontSize(12).Label(label).Changed()
+		changed = ui.Select(c, value, choices).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label(label).Changed()
 	})
 	return changed
 }
@@ -166,7 +186,7 @@ func preferenceSlider(c *ui.Context, full bool, label string, value, lo, hi floa
 		return
 	}
 	settingsRow(c, label, func() {
-		if ui.Slider(c, &value, lo, hi).Width(120).Height(25).Label(label).Changed() {
+		if ui.Slider(c, &value, lo, hi).Width(120).Height(settingsControlHeight).Label(label).Changed() {
 			save(value)
 		}
 		ui.Text(c, display).Width(40).FontSize(11.5).TextColor(colors(c.Theme()).muted).TextAlign(ui.End)
@@ -201,16 +221,16 @@ func preferenceAction(c *ui.Context, full bool, label string) ui.Element {
 
 func settingsRow(c *ui.Context, label string, controls func()) {
 	p := colors(c.Theme())
-	ui.Row(c).Height(50).PaddingX(15).Gap(10).AlignItems(ui.Center).Children(func() { ui.Text(c, label).FontSize(12.5).TextColor(p.text).Grow(1); controls() })
+	ui.Row(c).FillWidth().Height(50).PaddingX(settingsTextInset).Gap(10).AlignItems(ui.Center).Children(func() { ui.Text(c, label).FontSize(12.5).TextColor(p.text).Grow(1).MinWidth(0); controls() })
 }
 
 func (a *app) generalSettings(c *ui.Context) {
 	p := colors(c.Theme())
-	ui.Column(c).Gap(24).Children(func() {
+	ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
 		settingsGroup(c, "启动", func() {
 			settingsRow(c, "启动页", func() {
 				label := startupLabels[startupPage(a.library.Preferences.StartupPage)]
-				if ui.Select(c, &label, []string{"首页", "关注", "最近观看", "哔哩哔哩", "斗鱼", "虎牙", "抖音", "企鹅体育"}).Width(170).Height(30).FontSize(12).Label("启动页").Changed() {
+				if ui.Select(c, &label, []string{"首页", "关注", "最近观看", "哔哩哔哩", "斗鱼", "虎牙", "抖音", "企鹅体育"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("启动页").Changed() {
 					next := a.library.Preferences
 					for key, value := range startupLabels {
 						if value == label {
@@ -220,6 +240,7 @@ func (a *app) generalSettings(c *ui.Context) {
 					a.savePreferences(next)
 				}
 			})
+			settingsDivider(c)
 			preferenceSwitch(c, true, "启动时恢复上次直播（静音）", a.library.Preferences.ResumeSession, func(value bool) { next := a.library.Preferences; next.ResumeSession = value; a.savePreferences(next) })
 		})
 		settingsGroup(c, "外观", func() {
@@ -228,7 +249,7 @@ func (a *app) generalSettings(c *ui.Context) {
 				if label == "" {
 					label = "跟随系统"
 				}
-				if ui.Select(c, &label, []string{"跟随系统", "浅色", "深色"}).Width(170).Height(30).FontSize(12).Label("外观").Changed() {
+				if ui.Select(c, &label, []string{"跟随系统", "浅色", "深色"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("外观").Changed() {
 					next := a.library.Preferences
 					next.Appearance = map[string]string{"跟随系统": "system", "浅色": "light", "深色": "dark"}[label]
 					a.savePreferences(next)
@@ -237,12 +258,13 @@ func (a *app) generalSettings(c *ui.Context) {
 		})
 		a.backupSettings(c)
 		a.notificationSettings(c)
-		ui.Column(c).Gap(13).PaddingX(3).Children(func() {
-			ui.Text(c, "键盘快捷键").FontSize(11.5).FontWeight(600).TextColor(p.muted)
-			for _, shortcut := range [][2]string{{"快捷搜索直播", shortcutLabel("⌘L / ⌘K")}, {"搜索当前页面 / 观看时快捷搜索", shortcutLabel("⌘F")}, {"暂停 / 继续", "Space"}, {"唤出播放器控制条", "K / Tab"}, {"静音 / 取消静音", "M"}, {"切换画面弹幕", "D"}, {"刷新 / 重新连接", shortcutLabel("⌘R")}, {"全屏", shortcutLabel("⌃⌘F")}, {"切换页面", shortcutLabel("⌘1 — ⌘4")}, {"返回 / 退出全屏", "Esc"}} {
-				ui.Row(c).Gap(12).Children(func() {
-					ui.Text(c, shortcut[0]).FontSize(12).TextColor(p.muted).Grow(1)
-					ui.Text(c, shortcut[1]).FontSize(11.5).TextColor(p.muted)
+		settingsGroup(c, "键盘快捷键", func() {
+			for i, shortcut := range [][2]string{{"快捷搜索直播", shortcutLabel("⌘L / ⌘K")}, {"搜索当前页面 / 观看时快捷搜索", shortcutLabel("⌘F")}, {"暂停 / 继续", "Space"}, {"唤出播放器控制条", "K / Tab"}, {"静音 / 取消静音", "M"}, {"切换画面弹幕", "D"}, {"刷新 / 重新连接", shortcutLabel("⌘R")}, {"全屏", shortcutLabel("⌃⌘F")}, {"切换页面", shortcutLabel("⌘1 — ⌘4")}, {"返回 / 退出全屏", "Esc"}} {
+				if i > 0 {
+					settingsDivider(c)
+				}
+				settingsRow(c, shortcut[0], func() {
+					ui.Text(c, shortcut[1]).FontSize(11.5).TextColor(p.muted).Width(settingsControlWidth).TextAlign(ui.End)
 				})
 			}
 		})
@@ -270,46 +292,45 @@ func defaultQualityLabel(value string) string {
 
 func (a *app) playbackSettings(c *ui.Context) {
 	p := colors(c.Theme())
-	ui.Column(c).Gap(24).Children(func() {
-		settingsGroup(c, "观看", func() {
-			settingsRow(c, "只听声音", func() {
-				enabled := a.audioOnly()
-				if ui.Switch(c, &enabled).Label("只听声音").Disabled(a.audioModeChanging).Changed() {
-					a.setAudioOnly(enabled)
-				}
-			})
-		})
-		if player.NativeBackendAvailable() {
-			settingsGroup(c, "", func() {
+	ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
+		settingsGroup(c, "播放", func() {
+			if player.NativeBackendAvailable() {
 				settingsRow(c, "播放内核", func() {
 					label := "mpv"
 					if player.NormalizeBackend(a.library.Preferences.PlayerBackend) == "vt" {
 						label = "原生硬解（测试）"
 					}
-					if ui.Select(c, &label, []string{"mpv", "原生硬解（测试）"}).Width(170).Height(30).FontSize(12).Label("播放内核").Changed() {
+					if ui.Select(c, &label, []string{"mpv", "原生硬解（测试）"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("播放内核").Changed() {
 						next := a.library.Preferences
 						next.PlayerBackend = "mpv"
 						if label == "原生硬解（测试）" {
 							next.PlayerBackend = "vt"
 						}
 						a.savePreferences(next)
+						a.settings.backendRestartOpen = player.NormalizeBackend(a.library.Preferences.PlayerBackend) != a.runningPlayerBackend()
 					}
 				})
-				current := "mpv"
-				if a.surface != nil && a.surface.Metrics().Backend == "videotoolbox-metal" {
-					current = "原生硬解"
-				}
-				ui.Text(c, "重新打开应用后生效。当前使用："+current).FontSize(10.5).TextColor(p.muted).Padding(0, 15, 14, 15)
-			})
-		}
-		settingsGroup(c, "清晰度", func() {
+				ui.Row(c).Padding(0, 15, 12, 15).Gap(12).AlignItems(ui.Center).Children(func() {
+					current := "mpv"
+					if a.runningPlayerBackend() == "vt" {
+						current = "原生硬解"
+					}
+					ui.Text(c, "当前使用："+current).FontSize(10.5).TextColor(p.muted).Grow(1)
+					if player.NormalizeBackend(a.library.Preferences.PlayerBackend) != a.runningPlayerBackend() {
+						if settingsAction(c, "重启生效").Clicked() {
+							a.settings.backendRestartOpen = true
+						}
+					}
+				})
+				settingsDivider(c)
+			}
 			settingsRow(c, "默认画质", func() {
 				label := defaultQualityLabel(a.library.Preferences.DefaultQuality)
 				choices := make([]string, len(defaultQualityOptions))
 				for i, option := range defaultQualityOptions {
 					choices[i] = option.Label
 				}
-				if ui.Select(c, &label, choices).Width(170).Height(30).FontSize(12).Label("默认画质").Changed() {
+				if ui.Select(c, &label, choices).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("默认画质").Changed() {
 					next := a.library.Preferences
 					for _, option := range defaultQualityOptions {
 						if option.Label == label {
@@ -321,9 +342,16 @@ func (a *app) playbackSettings(c *ui.Context) {
 			})
 			ui.Text(c, "进入直播间时自动选择；平台缺少所选档位时会使用最接近的可用清晰度。").FontSize(10.5).TextColor(p.muted).MaxLines(3).Padding(0, 15, 14, 15)
 		})
-		settingsGroup(c, "观看时", func() {
+		settingsGroup(c, "观看", func() {
+			settingsRow(c, "只听声音", func() {
+				enabled := a.audioOnly()
+				if ui.Switch(c, &enabled).Label("只听声音").Disabled(a.audioModeChanging).Changed() {
+					a.setAudioOnly(enabled)
+				}
+			})
+			settingsDivider(c)
 			settingsRow(c, "播放音量", func() {
-				if ui.Slider(c, &a.volume, 0, 100).Width(120).Label("播放音量").Changed() {
+				if ui.Slider(c, &a.volume, 0, 100).Width(120).Height(settingsControlHeight).Label("播放音量").Changed() {
 					a.setVolume()
 				}
 				ui.Text(c, fmt.Sprintf("%.0f%%", a.volume)).Width(40).FontSize(11.5).TextAlign(ui.End).TextColor(p.muted)
@@ -359,113 +387,140 @@ func (a *app) playbackSettings(c *ui.Context) {
 	})
 }
 
+func (a *app) runningPlayerBackend() string {
+	if a.surface != nil && a.surface.Metrics().Backend == "videotoolbox-metal" {
+		return "vt"
+	}
+	return "mpv"
+}
+
 func (a *app) accountSettings(c *ui.Context) {
 	p := colors(c.Theme())
-	ui.Column(c).Gap(13).Children(func() {
-		for _, source := range []platforms.Platform{platforms.Bilibili, platforms.Douyu, platforms.Douyin, platforms.Qie} {
-			ui.Row(c.Key(string(source))).Padding(16).Gap(13).Radius(11).Border(1, p.line).AlignItems(ui.Center).Children(func() {
-				ui.Box(c).Size(38, 38).Radius(10).Background(p.soft).Center().Children(func() { ui.Icon(c, platformLogo(source)).Size(24, 24) })
-				status := a.accountStatus[source]
-				saved := strings.HasPrefix(status, "已保存")
-				if saved {
-					status = "Cookie 已保存"
+	ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
+		settingsGroup(c, "登录", func() {
+			for i, source := range []platforms.Platform{platforms.Bilibili, platforms.Douyu, platforms.Douyin, platforms.Qie} {
+				if i > 0 {
+					settingsDivider(c)
 				}
-				ui.Column(c).Grow(1).Gap(5).Children(func() {
-					ui.Text(c, source.Name()).FontSize(13.5).FontWeight(600).TextColor(p.text)
-					ui.Text(c, status).FontSize(11.5).TextColor(p.muted)
-				})
-				label := "登录"
-				if saved {
-					label = "重新登录"
-				}
-				if ui.Button(c, label).Height(30).FontSize(12).Clicked() {
-					a.loginWindow(source)
-				}
-				if a.accountStatus[source] != "未登录" && iconButton(c.Key("remove"), iconClose, "移除本机登录").Size(28, 28).Clicked() {
-					if err := a.vault.Remove(source); err != nil {
-						a.settings.message = err.Error()
-					} else {
-						a.refreshAccountStatus()
-						a.settings.message = "已移除本机登录"
+				ui.Row(c.Key(string(source))).FillWidth().Height(72).PaddingX(15).Gap(12).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).Size(32, 32).Shrink(0).Center().Children(func() { ui.Icon(c, platformLogo(source)).Size(24, 24).TextColor(p.muted) })
+					status := a.accountStatus[source]
+					if status == "" {
+						status = "未登录"
 					}
-				}
-			})
-		}
-		ui.Text(c, "Cookie 加密保存在此设备。").FontSize(11.5).TextColor(p.muted).Margin(3, 2, 8, 2)
-		b := ui.ButtonBase(c.Key("import")).Padding(4, 0).Gap(6).Justify(ui.Start).Label("导入已有 Cookie")
-		b.Children(func() {
-			angle := float32(0)
-			if a.settings.manual {
-				angle = 90
-			}
-			ui.Icon(c, iconChevron).Size(11, 11).Rotate(angle).TextColor(p.muted)
-			ui.Text(c, "导入已有 Cookie").FontSize(12).TextColor(p.muted)
-		})
-		if b.Clicked() {
-			a.settings.manual = !a.settings.manual
-			a.settings.message = ""
-		}
-		if a.settings.manual {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Select(c, &a.settings.selected, []string{"哔哩哔哩", "斗鱼", "抖音", "企鹅体育"}).Width(106).Height(30).FontSize(12).Label("Cookie 所属平台")
-				ui.TextInput(c, &a.settings.imported).Password().Placeholder("粘贴 Cookie").Label("手动导入 Cookie").FontSize(12).Grow(1).MinWidth(0).Height(30)
-				if ui.Button(c, "保存").Height(30).FontSize(12).Disabled(strings.TrimSpace(a.settings.imported) == "").Clicked() {
-					source := platforms.Bilibili
-					if a.settings.selected == "企鹅体育" {
-						source = platforms.Qie
+					saved := strings.HasPrefix(status, "已保存")
+					if saved {
+						status = "Cookie 已保存"
 					}
-					if a.settings.selected == "抖音" {
-						source = platforms.Douyin
-					}
-					if a.settings.selected == "斗鱼" {
-						source = platforms.Douyu
-					}
-					var cookies []accounts.Cookie
-					for _, part := range strings.Split(a.settings.imported, ";") {
-						name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
-						if ok {
-							cookies = append(cookies, accounts.Cookie{Name: name, Value: value, Domain: "." + source.Domain(), Path: "/", Secure: true})
+					ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+						ui.Text(c, source.Name()).FontSize(12.5).FontWeight(500).TextColor(p.text)
+						ui.Text(c, status).FontSize(11.5).TextColor(p.muted).SingleLine().Tooltip(status)
+					})
+					if status != "未登录" && iconButton(c.Key("remove"), iconClose, "移除本机登录").Size(settingsControlHeight, settingsControlHeight).Clicked() {
+						if err := a.vault.Remove(source); err != nil {
+							a.settings.message = err.Error()
+						} else {
+							a.refreshAccountStatus()
+							a.settings.message = "已移除本机登录"
 						}
 					}
-					if err := a.vault.Save(source, cookies); err != nil {
-						a.settings.message = err.Error()
-					} else {
-						a.settings.imported = ""
-						a.settings.message = "已保存本机 Cookie"
-						a.refreshAccountStatus()
-						a.win.Invalidate()
+					label := "登录"
+					if saved {
+						label = "重新登录"
 					}
+					if settingsAction(c, label).Label(label + source.Name()).Clicked() {
+						a.loginWindow(source)
+					}
+				})
+			}
+		})
+		settingsGroup(c, "", func() {
+			b := ui.ButtonBase(c.Key("import")).FillWidth().Height(50).PaddingX(15).Gap(10).AlignItems(ui.Center).Justify(ui.Start).Label("导入已有 Cookie")
+			buttonFeedback(b, p)
+			b.Children(func() {
+				ui.Text(c, "导入已有 Cookie").FontSize(12.5).TextColor(p.text).Grow(1)
+				angle := float32(0)
+				if a.settings.manual {
+					angle = 90
 				}
+				ui.Icon(c, iconChevron).Size(13, 13).Rotate(angle).TextColor(p.faint)
 			})
-		}
+			if b.Clicked() {
+				a.settings.manual = !a.settings.manual
+				a.settings.message = ""
+			}
+			if a.settings.manual {
+				settingsDivider(c)
+				ui.Column(c.Key("manual-cookie")).FillWidth().Transition(menuContentTransition).Children(func() {
+					settingsRow(c, "来源", func() {
+						ui.Select(c, &a.settings.selected, []string{"哔哩哔哩", "斗鱼", "抖音", "企鹅体育"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("Cookie 所属平台")
+					})
+					ui.Row(c).FillWidth().Padding(0, 15, 15, 15).Gap(10).AlignItems(ui.Center).Children(func() {
+						ui.TextInput(c, &a.settings.imported).Password().Placeholder("粘贴 Cookie").Label("手动导入 Cookie").FontSize(12).Grow(1).MinWidth(0).Height(settingsControlHeight)
+						if settingsAction(c, "保存").Label("保存导入 Cookie").Disabled(strings.TrimSpace(a.settings.imported) == "").Clicked() {
+							source := platforms.Bilibili
+							if a.settings.selected == "企鹅体育" {
+								source = platforms.Qie
+							}
+							if a.settings.selected == "抖音" {
+								source = platforms.Douyin
+							}
+							if a.settings.selected == "斗鱼" {
+								source = platforms.Douyu
+							}
+							var cookies []accounts.Cookie
+							for _, part := range strings.Split(a.settings.imported, ";") {
+								name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+								if ok {
+									cookies = append(cookies, accounts.Cookie{Name: name, Value: value, Domain: "." + source.Domain(), Path: "/", Secure: true})
+								}
+							}
+							if err := a.vault.Save(source, cookies); err != nil {
+								a.settings.message = err.Error()
+							} else {
+								a.settings.imported = ""
+								a.settings.message = "已保存本机 Cookie"
+								a.refreshAccountStatus()
+								a.win.Invalidate()
+							}
+						}
+					})
+				})
+			}
+		})
+		ui.Text(c, "Cookie 加密保存在此设备。").FontSize(11.5).TextColor(p.muted).PaddingX(15)
 		if a.settings.message != "" {
-			ui.Text(c, a.settings.message).FontSize(11.5).MaxLines(3).TextColor(p.muted)
+			ui.Text(c, a.settings.message).FontSize(11.5).MaxLines(3).TextColor(p.muted).PaddingX(15)
 		}
 	})
 }
 
 func (a *app) aboutView(c *ui.Context) {
 	p := colors(c.Theme())
-	ui.Column(c).AlignItems(ui.Center).Gap(9).Padding(10, 0).Children(func() {
-		playfulMascot(c)
-		ui.Text(c, "Live MyGo").FontSize(20).FontWeight(650).TextColor(p.text)
-		version := ui.ButtonBase(c).Height(28).PaddingX(10).Radius(7).Center().Label("版本号")
-		buttonFeedback(version, p)
-		version.Children(func() { ui.Text(c, strings.TrimSpace(appVersion)+" · 测试版").FontSize(12).TextColor(p.muted) })
-		if version.Clicked() && a.unlockRaceMenu() {
-			c.Toast("赛事入口已开启")
-		}
-		ui.Text(c, "原生播放器练手项目").FontSize(12).TextColor(p.muted).Margin(2, 0, 16, 0)
+	ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
+		ui.Column(c).FillWidth().AlignItems(ui.Center).Gap(8).PaddingY(8).Children(func() {
+			playfulMascot(c)
+			ui.Text(c, "Live MyGo").FontSize(20).FontWeight(650).TextColor(p.text)
+			version := ui.ButtonBase(c).Height(settingsControlHeight).PaddingX(10).Radius(7).Center().Label("版本号")
+			buttonFeedback(version, p)
+			version.Children(func() { ui.Text(c, strings.TrimSpace(appVersion)+" · 测试版").FontSize(12).TextColor(p.muted) })
+			if version.Clicked() && a.unlockRaceMenu() {
+				c.Toast("赛事入口已开启")
+			}
+			ui.Text(c, "原生播放器练手项目").FontSize(12).TextColor(p.muted).Margin(2, 0, 0, 0)
+		})
 		a.updateControls(c)
-		ui.Column(c).WidthPercent(100).Gap(10).Children(func() {
-			for _, reference := range [][2]string{{"MyGo", "https://github.com/egoist/mygo"}, {"Pure Live", "https://github.com/liuchuancong/pure_live"}, {"Simple Live", "https://github.com/xuanxuan123xuan/dart_simple_live"}, {"Lucide Icons", "https://lucide.dev/"}, {"mpv", "https://mpv.io/"}} {
-				ui.Row(c).Gap(10).Children(func() {
-					ui.Text(c, reference[0]).FontSize(12).TextColor(p.muted).Grow(1)
-					if iconButton(c, iconExternal, "打开 "+reference[0]+" 项目").Size(22, 22).Clicked() {
+		settingsGroup(c, "致谢", func() {
+			ui.Row(c).FillWidth().Height(50).PaddingX(8).Children(func() {
+				for _, reference := range [][2]string{{"MyGo", "https://github.com/egoist/mygo"}, {"Pure Live", "https://github.com/liuchuancong/pure_live"}, {"Simple Live", "https://github.com/xuanxuan123xuan/dart_simple_live"}, {"Lucide Icons", "https://lucide.dev/"}, {"mpv", "https://mpv.io/"}} {
+					b := ui.ButtonBase(c).Grow(1).Basis(0).MinWidth(0).Height(settingsControlHeight).Radius(7).Center().Label("打开 " + reference[0] + " 项目").Tooltip("打开 " + reference[0] + " 项目")
+					buttonFeedback(b, p)
+					b.Children(func() { ui.Text(c, reference[0]).FontSize(11.5).TextColor(p.muted).SingleLine() })
+					if b.Clicked() {
 						c.OpenURL(reference[1])
 					}
-				})
-			}
+				}
+			})
 		})
 	})
 }

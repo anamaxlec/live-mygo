@@ -67,6 +67,7 @@ struct VTCore {
     int frame_count;
     int dropped;
     int decoded;
+    int in_flight;
     char error[512];
 
     CMVideoFormatDescriptionRef format;
@@ -518,21 +519,22 @@ static void vt_decode_callback(void *refcon, void *source, OSStatus status,
                                VTDecodeInfoFlags flags, CVImageBufferRef image,
                                CMTime presentation, CMTime duration) {
     VTCore *core = (VTCore *)refcon;
+    pthread_mutex_lock(&core->lock);
+    core->in_flight--;
     if (status != noErr) {
+        pthread_mutex_unlock(&core->lock);
         vt_set_status_error(core, "VideoToolbox 解码失败", status);
         return;
     }
     if (!image) {
         if (flags & kVTDecodeInfo_FrameDropped) {
-            pthread_mutex_lock(&core->lock);
             core->dropped++;
-            pthread_mutex_unlock(&core->lock);
         }
+        pthread_mutex_unlock(&core->lock);
         return;
     }
     CVPixelBufferRef pixel = (CVPixelBufferRef)image;
     CFRetain(pixel);
-    pthread_mutex_lock(&core->lock);
     double seconds = CMTimeGetSeconds(presentation);
     if (!isfinite(seconds)) {
         seconds = isfinite(core->last_queued_pts) ? core->last_queued_pts + (core->fps > 0 ? 1.0 / core->fps : .033) : 0;
@@ -653,12 +655,18 @@ int vt_core_decode(VTCore *core, const uint8_t *data, int size,
     }
 
     VTDecodeInfoFlags flags = 0;
+    pthread_mutex_lock(&core->lock);
+    core->in_flight++;
+    pthread_mutex_unlock(&core->lock);
     status = VTDecompressionSessionDecodeFrame(
         core->session, sample,
         kVTDecodeFrame_EnableAsynchronousDecompression | kVTDecodeFrame_EnableTemporalProcessing,
         NULL, &flags);
     CFRelease(sample);
     if (status != noErr) {
+        pthread_mutex_lock(&core->lock);
+        core->in_flight--;
+        pthread_mutex_unlock(&core->lock);
         vt_set_status_error(core, "提交视频样本失败", status);
         if (err) snprintf(err, errlen, "%s", core->error);
         return -1;
@@ -718,6 +726,14 @@ int vt_core_queue_count(VTCore *core) {
     int value = core->frame_count;
     pthread_mutex_unlock(&core->lock);
     return value;
+}
+
+int vt_core_pending_count(VTCore *core) {
+    if (!core) return 0;
+    pthread_mutex_lock(&core->lock);
+    int count = core->frame_count + core->in_flight;
+    pthread_mutex_unlock(&core->lock);
+    return count;
 }
 
 void vt_core_release_frame(void *frame) {
@@ -794,6 +810,10 @@ void vt_core_close(VTCore *core) {
 @property(nonatomic, strong) AVSampleBufferAudioRenderer *renderer;
 @property(nonatomic, assign) CMFormatDescriptionRef format;
 @property(atomic, assign) BOOL started;
+@property(atomic, assign) double queuedEnd;
+@property(nonatomic, assign) double originPTS;
+@property(nonatomic, assign) int64_t queuedFrames;
+@property(nonatomic, assign) int sampleRate;
 @end
 
 @implementation VTAudio
@@ -826,21 +846,15 @@ void *vt_audio_create(int sample_rate, int channels, const uint8_t *extradata,
         return NULL;
     }
     VTAudio *audio = [[VTAudio alloc] init];
+    audio.queuedEnd = NAN;
+    audio.originPTS = NAN;
+    audio.sampleRate = sample_rate;
     audio.format = format;
     audio.synchronizer = [[AVSampleBufferRenderSynchronizer alloc] init];
+    audio.synchronizer.delaysRateChangeUntilHasSufficientMediaData = NO;
     audio.renderer = [[AVSampleBufferAudioRenderer alloc] init];
     [audio.synchronizer addRenderer:audio.renderer];
     return (__bridge_retained void *)audio;
-    }
-}
-
-void vt_audio_reset(void *handle) {
-    @autoreleasepool {
-        if (!handle) return;
-        VTAudio *audio = (__bridge VTAudio *)handle;
-        [audio.synchronizer setRate:0 time:kCMTimeInvalid];
-        [audio.renderer flush];
-        audio.started = NO;
     }
 }
 
@@ -849,7 +863,9 @@ void vt_audio_start(void *handle, double pts) {
     if (!handle) return;
     VTAudio *audio = (__bridge VTAudio *)handle;
     if (audio.started) return;
-    [audio.synchronizer setRate:1.0 time:CMTimeMakeWithSeconds(pts, 90000)];
+    // 给系统音频输出一个固定的短预填窗口，不等待 renderer 的大块文件预缓冲。
+    CMTime host = CMTimeAdd(CMClockGetTime(CMClockGetHostTimeClock()), CMTimeMake(1, 10));
+    [audio.synchronizer setRate:1.0 time:CMTimeMakeWithSeconds(fmax(0, pts), 90000) atHostTime:host];
     audio.started = YES;
     }
 }
@@ -857,7 +873,7 @@ void vt_audio_start(void *handle, double pts) {
 int vt_audio_ready(void *handle) {
     if (!handle) return 0;
     VTAudio *audio = (__bridge VTAudio *)handle;
-    return audio.renderer.readyForMoreMediaData ? 1 : 0;
+    return audio.renderer.readyForMoreMediaData || audio.renderer.status == AVQueuedSampleBufferRenderingStatusFailed ? 1 : 0;
 }
 
 int vt_audio_enqueue(void *handle, const uint8_t *data, int size, double pts,
@@ -884,9 +900,16 @@ int vt_audio_enqueue(void *handle, const uint8_t *data, int size, double pts,
     memcpy(destination, data, (size_t)size);
 
     CMSampleTimingInfo timing;
-    timing.duration = CMTimeMakeWithSeconds(duration, 90000);
-    timing.presentationTimeStamp = CMTimeMakeWithSeconds(pts, 90000);
-    timing.decodeTimeStamp = timing.presentationTimeStamp;
+    // FLV 的毫秒时间戳把 48 kHz AAC 的 21⅓ ms 交替量化成 21 / 22 ms。
+    // 按每包 1024 个样本连续排布，避免压缩音频缓冲相互重叠或出现小空洞。
+    double expected = audio.originPTS + (double)audio.queuedFrames / audio.sampleRate;
+    if (!isfinite(expected) || fabs(pts - expected) > duration / 2) {
+        audio.originPTS = pts;
+        audio.queuedFrames = 0;
+    }
+    timing.duration = CMTimeMake(1024, audio.sampleRate);
+    timing.presentationTimeStamp = CMTimeAdd(CMTimeMakeWithSeconds(audio.originPTS, audio.sampleRate), CMTimeMake(audio.queuedFrames, audio.sampleRate));
+    timing.decodeTimeStamp = kCMTimeInvalid;
     size_t sample_size = (size_t)size;
     CMSampleBufferRef sample = NULL;
     status = CMSampleBufferCreateReady(
@@ -902,6 +925,8 @@ int vt_audio_enqueue(void *handle, const uint8_t *data, int size, double pts,
         if (err) snprintf(err, errlen, "%s", audio.renderer.error.localizedDescription.UTF8String ?: "音频渲染失败");
         return -1;
     }
+    audio.queuedFrames += 1024;
+    audio.queuedEnd = CMTimeGetSeconds(CMTimeAdd(timing.presentationTimeStamp, timing.duration));
     return 0;
     }
 }
@@ -912,6 +937,21 @@ double vt_audio_clock(void *handle) {
     VTAudio *audio = (__bridge VTAudio *)handle;
     if (!audio.started) return NAN;
     return CMTimeGetSeconds([audio.synchronizer currentTime]);
+    }
+}
+
+void vt_audio_timing(void *handle, double *clock, double *buffered, double *rate) {
+    @autoreleasepool {
+        if (clock) *clock = NAN;
+        if (buffered) *buffered = 0;
+        if (rate) *rate = 0;
+        if (!handle) return;
+        VTAudio *audio = (__bridge VTAudio *)handle;
+        if (!audio.started) return;
+        double now = CMTimeGetSeconds([audio.synchronizer currentTime]);
+        if (clock) *clock = now;
+        if (buffered && isfinite(audio.queuedEnd) && isfinite(now)) *buffered = fmax(0, audio.queuedEnd - now);
+        if (rate) *rate = CMTimebaseGetEffectiveRate(audio.synchronizer.timebase);
     }
 }
 

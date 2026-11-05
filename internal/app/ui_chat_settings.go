@@ -51,22 +51,12 @@ func (a *app) chatSettingsContent(c *ui.Context, full bool) {
 	}
 	p := colors(c.Theme())
 	prefs := a.library.Preferences
-	surface := ui.Column(c).Gap(3)
-	if full {
-		surface.Radius(10).Background(p.soft).Clip()
-	}
-	surface.Children(func() {
+	divider := func() {
 		if full {
-			preferenceSwitch(c, full, "显示弹幕列表", prefs.ChatPanel, func(v bool) {
-				next := a.library.Preferences
-				next.ChatPanel = v
-				a.savePreferences(next)
-				a.fitWindowToVideo(false)
-			})
-			ui.Box(c).Height(1).MarginY(7).Background(p.line)
-		} else {
-			ui.Text(c, "弹幕列表").FontSize(13).FontWeight(600).TextColor(p.text).Padding(0, 3, 10, 3)
+			settingsDivider(c)
 		}
+	}
+	appearance := func() {
 		style := "气泡"
 		if prefs.ChatCompact {
 			style = "紧凑"
@@ -76,24 +66,56 @@ func (a *app) chatSettingsContent(c *ui.Context, full bool) {
 			next.ChatCompact = style == "紧凑"
 			a.savePreferences(next)
 		}
+		divider()
 		preferenceSlider(c, full, "文字大小", prefs.ChatSize, 11, 16, fmt.Sprintf("%.0f", prefs.ChatSize), func(v float64) { next := a.library.Preferences; next.ChatSize = v; a.previewPreferences(next) })
+		divider()
 		preferenceSwitch(c, full, "显示接收时间", prefs.ChatTime, func(v bool) { next := a.library.Preferences; next.ChatTime = v; a.savePreferences(next) })
+		divider()
 		preferenceSwitch(c, full, "显示粉丝牌", prefs.ChatBadges, func(v bool) { next := a.library.Preferences; next.ChatBadges = v; a.savePreferences(next) })
-		ui.Box(c).Height(1).MarginY(7).Background(p.line)
+	}
+	connection := func() {
 		preferenceSwitch(c, full, "显示连接面板", prefs.ChatConnection, func(v bool) { next := a.library.Preferences; next.ChatConnection = v; a.savePreferences(next) })
-		ui.Box(c).Height(1).MarginY(7).Background(p.line)
+	}
+	filter := func() {
 		preferenceSwitch(c, full, "屏蔽规则", prefs.FilterEnabled, func(v bool) {
 			next := a.library.Preferences
 			next.FilterEnabled = v
 			a.savePreferences(next)
 			a.clearFlyingChat()
 		})
+		divider()
 		preferenceSwitch(c, full, "过滤重复消息", prefs.FilterDuplicates, func(v bool) { next := a.library.Preferences; next.FilterDuplicates = v; a.savePreferences(next) })
+		divider()
 		if preferenceAction(c, full, "关键词与用户屏蔽").Clicked() {
 			a.chatSettingsOpen = false
 			a.filterWindow()
 		}
-		if !full && ui.Button(c, "全部弹幕列表设置").FillWidth().Height(29).FontSize(11.5).Margin(8, 0, 0, 0).Clicked() {
+	}
+	if full {
+		ui.Column(c).FillWidth().Gap(settingsSectionGap).Children(func() {
+			settingsGroup(c, "显示", func() {
+				preferenceSwitch(c, true, "显示弹幕列表", prefs.ChatPanel, func(v bool) {
+					next := a.library.Preferences
+					next.ChatPanel = v
+					a.savePreferences(next)
+					a.fitWindowToVideo(false)
+				})
+				settingsDivider(c)
+				appearance()
+			})
+			settingsGroup(c, "连接", connection)
+			settingsGroup(c, "屏蔽", filter)
+		})
+		return
+	}
+	ui.Column(c).Gap(3).Children(func() {
+		ui.Text(c, "弹幕列表").FontSize(13).FontWeight(600).TextColor(p.text).Padding(0, 3, 10, 3)
+		appearance()
+		ui.Box(c).Height(1).MarginY(7).Background(p.line)
+		connection()
+		ui.Box(c).Height(1).MarginY(7).Background(p.line)
+		filter()
+		if ui.Button(c, "全部弹幕列表设置").FillWidth().Height(29).FontSize(11.5).Margin(8, 0, 0, 0).Clicked() {
 			a.chatSettingsOpen = false
 			a.settingsWindow(settingsChat)
 		}

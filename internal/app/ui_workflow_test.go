@@ -5,6 +5,7 @@ package app
 import (
 	"math"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/platforms"
 	"testing"
@@ -24,7 +25,7 @@ func TestWatchedRoomRemainsInRecommendations(t *testing.T) {
 func TestHomepageMixesSourcesAndKeepsPersonalGroupsFirst(t *testing.T) {
 	a := polishApp(t)
 	a.page = "home"
-	a.catalog = mergeRecommendations([][]platforms.Room{{{Platform: platforms.Bilibili, ID: "1", Title: "推荐甲", Anchor: "甲"}}, {{Platform: platforms.Douyu, ID: "1", Title: "推荐乙", Anchor: "乙"}}})
+	a.catalog = mergeRecommendations([][]platforms.Room{{{Platform: platforms.Bilibili, ID: "1", Title: "推荐甲", Anchor: "甲", Live: true}}, {{Platform: platforms.Douyu, ID: "1", Title: "推荐乙", Anchor: "乙", Live: true}}})
 	a.library.History = []platforms.Room{{Platform: platforms.Huya, ID: "2", Title: "历史", Anchor: "历史主播"}}
 	tester := ui.NewTester(a.view, 1180, 920)
 	recent, _ := tester.Find("查看全部最近观看")
@@ -40,6 +41,83 @@ func TestHomepageMixesSourcesAndKeepsPersonalGroupsFirst(t *testing.T) {
 		tester = ui.NewTester(platformPage.view, 1180, 920)
 		if _, ok := tester.Find("查看全部最近观看"); ok {
 			t.Fatal("平台页仍重复显示首页最近观看模块", page)
+		}
+	}
+}
+
+func TestReturningHomeRestoresRecommendationsWithoutLoading(t *testing.T) {
+	a := polishApp(t)
+	a.page = "home"
+	a.catalog = []platforms.Room{{Platform: platforms.Bilibili, ID: "1", Title: "首页缓存", Anchor: "主播", Live: true}}
+	a.grid.KeepOffset = true
+	a.openPage("favorites")
+	a.catalog = []platforms.Room{{Platform: platforms.Douyu, ID: "2", Title: "其他页面", Live: true}}
+	a.openPage("home")
+	if len(a.catalog) != 1 || a.catalog[0].Title != "首页缓存" || a.catalogLoading || !a.grid.KeepOffset {
+		t.Fatalf("返回首页丢失已有卡片或滚动状态：%+v loading=%v", a.catalog, a.catalogLoading)
+	}
+	a.homeCatalog.updated = time.Now().Add(-2 * time.Minute)
+	if a.restoreHomeCatalog() || len(a.catalog) != 1 {
+		t.Fatal("过期缓存应保留展示，同时允许后台刷新")
+	}
+}
+
+func TestWindowStateStoreKeepsMainBoundsWhenQuittingCompanion(t *testing.T) {
+	a := polishApp(t)
+	store := appWindowStateStore{app: a}
+	normal := mygo.WindowState{X: 80, Y: 60, Width: 1320, Height: 840}
+	if err := store.SaveWindowStates(map[string]mygo.WindowState{"main": normal}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := store.LoadWindowStates()
+	if err != nil || saved["main"] != normal {
+		t.Fatal("窗口边界未保存", saved, err)
+	}
+	a.companion = true
+	a.companionBounds = mygo.Rectangle{X: normal.X, Y: normal.Y, Width: normal.Width, Height: normal.Height}
+	if err := store.SaveWindowStates(map[string]mygo.WindowState{"main": {Width: 480, Height: 270}}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err = store.LoadWindowStates()
+	if err != nil || saved["main"] != normal {
+		t.Fatal("小窗覆盖了普通窗口边界", saved, err)
+	}
+}
+
+func TestHomeRecommendationsExcludeOfflineAndRemoveKnownStoppedRooms(t *testing.T) {
+	bili := platforms.Room{Platform: platforms.Bilibili, ID: "1", Title: "正在直播", Live: true}
+	douyu := platforms.Room{Platform: platforms.Douyu, ID: "1", Title: "另一个平台", Live: true}
+	offline := platforms.Room{Platform: platforms.Qie, ID: "2", Title: "已下播", Live: false}
+	rooms := mergeRecommendations([][]platforms.Room{{bili, offline, bili}, {offline, douyu}})
+	if len(rooms) != 2 || rooms[0] != bili || rooms[1] != douyu {
+		t.Fatal("推荐应排除未开播房间，保留跨平台身份并去重", rooms)
+	}
+	a := polishApp(t)
+	a.catalog, a.homeCatalog.rooms = rooms, rooms
+	a.removeOfflineRecommendation(platforms.Bilibili, "1")
+	if len(a.catalog) != 1 || len(a.homeCatalog.rooms) != 1 || a.catalog[0] != douyu {
+		t.Fatal("确认下播的房间仍在当前或缓存推荐里")
+	}
+}
+
+func TestReturningToBrowseKeepsLayoutStillWhileContentAppears(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		a := polishApp(t)
+		a.page, a.returnPage, a.focusMode, a.shown = "player", "home", true, true
+		a.catalog = []platforms.Room{{Platform: platforms.Bilibili, ID: "1", Title: "缓存直播", Live: true}}
+		a.homeCatalog = homeCatalogState{rooms: a.catalog, updated: time.Now()}
+		tester := ui.NewTester(a.view, 1180, 780)
+		tester.SetPreferences(ui.Preferences{ReduceMotion: reduced, TextScale: 1})
+		a.backToBrowse()
+		tester.Frame()
+		before, found := tester.Find("为你推荐")
+		if !found || a.navWidth != sidebarWidth {
+			t.Fatalf("返回时仍在挤压内容：sidebar=%v found=%v", a.navWidth, found)
+		}
+		tester.Advance(80 * time.Millisecond)
+		after, _ := tester.Find("为你推荐")
+		if before.X != after.X || before.W != after.W || a.navWidth != sidebarWidth {
+			t.Fatal("侧栏出现时浏览内容仍在横向移动", before, after)
 		}
 	}
 }

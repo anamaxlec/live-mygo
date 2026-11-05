@@ -2,9 +2,9 @@
 
 # Live MyGo
 
-**基于 MyGo 和 libmpv 的原生播放器练手项目，用于学习原生 UI、视频播放和弹幕绘制。**
+**基于 MyGo 的原生播放器练手项目，用于学习原生 UI、视频播放和弹幕绘制。**
 
-[Windows 安装包 0.4.1-beta.3](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64.zip) · [macOS 0.4.1-beta.3](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-macos-arm64.dmg) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.1-beta.3)
+[macOS 0.4.2-beta.1](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.1/LiveMyGo-v0.4.2-beta.1-macos-arm64.dmg) · [Windows 安装包 0.4.1-beta.3](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64.zip) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.2-beta.1)
 
 ## 界面与功能
 
@@ -13,10 +13,14 @@
 - 浏览推荐和分区，搜索主播，通过房间号或官方链接进入直播间。
 - 切换清晰度、播放线路和画面比例，观看时继续浏览其他直播间。
 - 调整画面弹幕和弹幕列表样式，筛选消息、屏蔽用户或关键词。
-- 在本机保存关注和观看历史，刷新关注直播间的开播状态。
+- 管理关注、分组、置顶和别名，刷新开播状态，订阅开播提醒。
 - 使用官方登录窗口或导入 Cookie，账号信息加密保存在本机。
-- 通过快捷搜索切换直播间，从应用打开直播间官网。
-- 小窗置顶、快捷静音和定时停止；可选择启动页。
+- 跨来源快捷搜索，优先查找本机关注和历史。
+- 小窗置顶、只听声音、定时停止和多窗口观看。
+- 导入导出关注与偏好，可选静音恢复上次直播。
+- 保存当前画面或约 30 秒片段，导出播放诊断，检查应用更新。
+
+macOS 提供 mpv 与原生硬解两个内核。当前版本进展及验证范围见 [产品进展](docs/PRODUCT-NEXT.md)。Windows 下载包仍为 0.4.1-beta.3，新功能的实机复验清单见 [Windows 新功能交接](docs/windows/2026-11-05-HANDOFF.md)。
 
 ## 安装
 
@@ -44,7 +48,7 @@ Windows x64 测试版提供当前用户安装包或便携 ZIP，安装包无需�
 
 ## 构建
 
-需要 Go 1.27.3、Homebrew 的 `mpv` 和 Xcode Command Line Tools。
+需要 Go 1.27.3、Homebrew 的 `mpv`、`ffmpeg` 和 Xcode Command Line Tools。
 
 ```sh
 go test ./...
@@ -66,8 +70,8 @@ DMGBUILD=.local/packaging/bin/dmgbuild sh scripts/package.sh
 - [ ] 使用真实账号验证登录、Cookie 保存及不同账号的画质权限。
 - [ ] 验证长时间播放和高峰弹幕下的稳定性，测量实际能耗。
 - [x] 完成 Windows 实机播放、高 DPI 与视频叠层验证；账号登录仍待验证。
-- [ ] 继续打磨原生界面与动效。
-- [ ] 探索录制、多直播间和画中画。
+- [ ] 在 Windows 实机复验本轮新增的搜索、数据管理、多窗口和保存功能。
+- [ ] 完善短片段起始关键帧、系统画中画和多画面布局。
 - [ ] 探索应用内发送弹幕等平台互动。
 
 ## 许可证与致谢

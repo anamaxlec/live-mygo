@@ -27,11 +27,15 @@ var iconOnce sync.Once
 
 func appIcon() *ui.Bitmap {
 	iconOnce.Do(func() {
-		img, err := png.Decode(bytes.NewReader(appIconPNG))
-		if err != nil {
-			panic(err)
-		}
-		iconBitmap = ui.NewBitmap(img)
+		iconBitmap = bitmapAsset("app-icon.png")
 	})
 	return iconBitmap
+}
+
+func bitmapAsset(name string) *ui.Bitmap {
+	img, err := png.Decode(bytes.NewReader(readAsset(name)))
+	if err != nil {
+		panic(err)
+	}
+	return ui.NewBitmap(img)
 }

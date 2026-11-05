@@ -4,6 +4,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -36,6 +37,9 @@ func (a *app) browseView(c *ui.Context) {
 	if local {
 		title, rooms = "关注", nil
 		if a.library != nil {
+			if a.favoriteGroup != "" && !slices.Contains(a.library.FavoriteGroups(), a.favoriteGroup) {
+				a.favoriteGroup = ""
+			}
 			rooms = a.favoriteRooms()
 		}
 		if a.page == "history" {
@@ -49,6 +53,15 @@ func (a *app) browseView(c *ui.Context) {
 			for _, r := range rooms {
 				if string(r.Platform) == a.libraryPlatform {
 					filtered = append(filtered, r)
+				}
+			}
+			rooms = filtered
+		}
+		if a.page == "favorites" && a.favoriteGroup != "" {
+			filtered := make([]platforms.Room, 0, len(rooms))
+			for _, room := range rooms {
+				if a.library.Details(room).Group == a.favoriteGroup {
+					filtered = append(filtered, room)
 				}
 			}
 			rooms = filtered
@@ -97,6 +110,26 @@ func (a *app) browseView(c *ui.Context) {
 						a.grid = ui.ListState{}
 					}
 				}
+				if a.page == "favorites" && a.library != nil && len(a.library.FavoriteGroups()) > 0 {
+					ui.Box(c).Grow(1)
+					group := a.favoriteGroup
+					if group == "" {
+						group = "全部分组"
+					}
+					ui.Button(c, group).Width(126).Height(28).FontSize(11.5).Label("关注分组").Menu(func(m *ui.Menu) {
+						if m.Item("全部分组").Checked(a.favoriteGroup == "").Chosen() {
+							a.favoriteGroup = ""
+							a.grid = ui.ListState{}
+						}
+						m.Separator()
+						for _, name := range a.library.FavoriteGroups() {
+							if m.Item(name).Checked(a.favoriteGroup == name).Chosen() {
+								a.favoriteGroup = name
+								a.grid = ui.ListState{}
+							}
+						}
+					})
+				}
 			})
 		} else if a.catalogQuery == "" && a.page != "home" {
 			a.categoryBar(c)
@@ -122,6 +155,10 @@ func (a *app) browseView(c *ui.Context) {
 			}
 			if local && a.libraryPlatform != "" {
 				heading, detail = "这个平台暂时没有直播间", "切换到全部，查看其他平台的直播间。"
+			}
+			if a.page == "favorites" && a.favoriteGroup != "" {
+				emptyStateAction(c, iconHeart, "没有匹配的关注直播间", "换一个来源或分组试试。", "查看全部关注", func() { a.libraryPlatform = ""; a.favoriteGroup = ""; a.grid = ui.ListState{} })
+				return
 			}
 			if local {
 				emptyStateAction(c, icon, heading, detail, "浏览直播", func() { a.pendingPage = string(a.platform()); c.After(time.Nanosecond) })
@@ -366,13 +403,7 @@ func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {
 		b.Children(func() {
 			ui.Box(c).Height(coverHeight).Radius(9).Background(p.soft).Children(func() {
 				a.coverImage(c, r.Cover, 9)
-				shown := float32(0)
-				if b.Hovered() || b.FocusVisible() {
-					shown = 1
-				}
-				ui.Column(c).Absolute().Top(0).Left(0).Right(0).Bottom(0).Center().Radius(9).Background(ui.RGBA(0, 0, 0, 0.1)).Opacity(b.AnimateTo("play", shown, ui.Animation{Duration: 140 * time.Millisecond})).Children(func() {
-					ui.Box(c).Size(36, 36).Radius(18).Background(ui.RGBA(0, 0, 0, 0.48)).Center().Children(func() { ui.Icon(c, iconPlay).Size(17, 17).TextColor(ui.Hex("#ffffff")) })
-				})
+				coverPlayCue(c, b)
 				if a.page == "favorites" {
 					state, ink := "待刷新", p.muted
 					if fresh, ok := a.libraryRooms[roomKey(r)]; ok {
@@ -399,11 +430,11 @@ func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {
 		}
 		b.ContextMenu(func(m *ui.Menu) { a.roomMenu(c, m, r) })
 		ui.Row(c).Height(22).Gap(5).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, roomLabel(r)).FontSize(11.5).TextColor(p.muted).SingleLine().Grow(1).MinWidth(0)
+			ui.Text(c, a.displayRoomName(r)).FontSize(11.5).TextColor(p.muted).SingleLine().Grow(1).MinWidth(0)
 			if a.library != nil {
-				icon, label := iconHeart, "关注 "+roomLabel(r)
+				icon, label := iconHeart, "关注 "+a.displayRoomName(r)
 				if a.library.Has(r) {
-					icon, label = iconHeartFilled, "取消关注 "+roomLabel(r)
+					icon, label = iconHeartFilled, "取消关注 "+a.displayRoomName(r)
 				}
 				if iconButton(c.Key("follow"), icon, label).Size(25, 22).Clicked() {
 					a.toggleFavorite(r)
@@ -443,6 +474,9 @@ func (a *app) roomMenu(c *ui.Context, m *ui.Menu, r platforms.Room) {
 	if m.Item("播放直播间").Disabled(a.player == nil).Chosen() {
 		a.playRoom(r)
 	}
+	if m.Item("新窗口观看").Disabled(a.player == nil || len(a.rootApp().extraWindows) >= maxExtraWindows).Chosen() {
+		a.openExtraRoom(r)
+	}
 	if a.library != nil {
 		label := "关注直播间"
 		if a.library.Has(r) {
@@ -450,6 +484,18 @@ func (a *app) roomMenu(c *ui.Context, m *ui.Menu, r platforms.Room) {
 		}
 		if m.Item(label).Chosen() {
 			a.toggleFavorite(r)
+		}
+		if a.library.Has(r) {
+			if m.Item("置顶关注").Checked(a.library.Details(r).Pinned).Chosen() {
+				details := a.library.Details(r)
+				details.Pinned = !details.Pinned
+				if err := a.saveFavoriteDetails(r, details); err != nil {
+					a.toast = "关注设置未能保存"
+				}
+			}
+			if m.Item("编辑关注").Chosen() {
+				a.editFavorite(r)
+			}
 		}
 	}
 	if !a.coverRetry[r.Cover].IsZero() {

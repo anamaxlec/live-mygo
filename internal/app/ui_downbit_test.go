@@ -233,8 +233,12 @@ func TestQuickSearchDefaultsToCurrentRoomPlatform(t *testing.T) {
 	a.platformLabel = "哔哩哔哩"
 	a.targetRoom = platforms.Room{Platform: platforms.Douyu, ID: "24422"}
 	a.openQuickSearch()
-	if a.quick.platform != "斗鱼" {
+	if a.quick.platform != allSearchSources || a.quickRoomPlatform() != platforms.Douyu {
 		t.Fatal("直接跨平台开房后，房间号搜索仍使用旧平台")
+	}
+	a.quick.platform = platforms.Bilibili.Name()
+	if a.quickRoomPlatform() != platforms.Bilibili {
+		t.Fatal("手动选择的来源没有覆盖当前房间来源")
 	}
 }
 

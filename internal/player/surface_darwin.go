@@ -42,6 +42,9 @@ type Surface struct {
 	visible              atomic.Bool
 	dirty                atomic.Bool
 	resizePending        atomic.Bool
+	drawableDirty        atomic.Bool
+	invalidate           func()
+	renderErr            atomic.Pointer[string]
 	frameMu              sync.Mutex
 	wake                 chan struct{}
 	resizes, deferred    atomic.Uint64
@@ -49,7 +52,14 @@ type Surface struct {
 	maxResizeNS          atomic.Int64
 }
 
-func NewSurface(window uintptr) (*Surface, error) {
+func NewSurface(window uintptr, backend ...string) (VideoSurface, error) {
+	if selectedBackend(backend) == "vt" {
+		return newVTSurface(window)
+	}
+	return newGLSurface(window)
+}
+
+func newGLSurface(window uintptr) (*Surface, error) {
 	lib, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
 		return nil, err
@@ -86,11 +96,17 @@ func NewSurface(window uintptr) (*Surface, error) {
 	}
 	var initView func(objc.ID, objc.SEL, rect, objc.ID) objc.ID
 	purego.RegisterFunc(&initView, sym)
-	s.view = initView(objc.ID(objc.GetClass("NSOpenGLView")).Send(objc.RegisterName("alloc")), objc.RegisterName("initWithFrame:pixelFormat:"), rect{Size: size{640, 360}}, format)
+	viewClass, err := synchronizedGLViewClass()
+	if err != nil {
+		format.Send(objc.RegisterName("release"))
+		return nil, err
+	}
+	s.view = initView(objc.ID(viewClass).Send(objc.RegisterName("alloc")), objc.RegisterName("initWithFrame:pixelFormat:"), rect{Size: size{640, 360}}, format)
 	format.Send(objc.RegisterName("release"))
 	if s.view == 0 {
 		return nil, errors.New("无法创建原生视频视图")
 	}
+	glSurfaces.Store(s.view, s)
 	s.view.Send(objc.RegisterName("setWantsBestResolutionOpenGLSurface:"), true)
 	s.view.Send(objc.RegisterName("setHidden:"), true)
 	// 与 MyGo 的 WebView 一样，将原生画面放在 GPU UI 之下，控件可直接叠加。
@@ -146,7 +162,7 @@ func (s *Surface) SetBounds(x, y, w, h, windowHeight float64) bool {
 		scale = 1
 	}
 	pw, ph := int64(w*scale), int64(h*scale)
-	if r != s.last || pw != s.width.Load() || ph != s.height.Load() {
+	if r != s.last || pw != s.width.Load() || ph != s.height.Load() || s.drawableDirty.Load() {
 		s.resizePending.Store(true)
 		if !s.frameMu.TryLock() {
 			s.deferred.Add(1)
@@ -164,6 +180,7 @@ func (s *Surface) SetBounds(x, y, w, h, windowHeight float64) bool {
 		s.width.Store(pw)
 		s.height.Store(ph)
 		s.dirty.Store(true)
+		s.drawableDirty.Store(false)
 		s.resizePending.Store(false)
 		s.resizes.Add(1)
 		ns := time.Since(started).Nanoseconds()
@@ -184,7 +201,11 @@ func (s *Surface) Show(show bool) {
 	// AppKit 的窗口状态只在主线程读取。
 	show = show && s.window.Send(objc.RegisterName("isVisible")) != 0 && s.window.Send(objc.RegisterName("occlusionState"))&(1<<1) != 0
 	if s.visible.Swap(show) != show {
+		s.frameMu.Lock()
+		s.lock(s.context)
 		s.view.Send(objc.RegisterName("setHidden:"), !show)
+		s.unlock(s.context)
+		s.frameMu.Unlock()
 		s.updateMaterialCorners()
 		s.dirty.Store(true)
 		s.notify()
@@ -202,7 +223,24 @@ func (s *Surface) Metrics() RenderMetrics {
 	return RenderMetrics{Resizes: s.resizes.Load(), DeferredResizes: s.deferred.Load(), MaxResizeMS: float64(s.maxResizeNS.Load()) / 1e6, RenderedFrames: s.rendered.Load(), UpdateCallbacks: s.callbacks.Load(), Backend: "libmpv-render-opengl"}
 }
 
-func (s *Surface) RenderError() string { return "" }
+func (s *Surface) RenderError() string {
+	if err := s.renderErr.Load(); err != nil {
+		return *err
+	}
+	return ""
+}
 
 // Windows 的软件输出用回调驱动重绘；macOS 的原生视图自行提交帧。
-func (s *Surface) SetFrameCallback(func()) {}
+func (s *Surface) SetFrameCallback(invalidate func()) { s.invalidate = invalidate }
+
+// Player.Close 已在后台等待渲染退出，随后在 UI 线程释放视图。
+func (s *Surface) Close() {
+	glSurfaces.Delete(s.view)
+	for i, view := range s.cornerViews {
+		view.Send(objc.RegisterName("removeFromSuperview"))
+		view.Send(objc.RegisterName("release"))
+		s.cornerImages[i].Send(objc.RegisterName("release"))
+	}
+	s.view.Send(objc.RegisterName("removeFromSuperview"))
+	s.view.Send(objc.RegisterName("release"))
+}

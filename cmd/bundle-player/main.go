@@ -145,6 +145,19 @@ func main() {
 	libraries := map[string]*library{}
 	names := map[string]string{}
 	queue := []string{source}
+	binary := filepath.Join(bundle, "Contents/MacOS/live-mygo")
+	binaryRefs := map[string]string{}
+	// 原生内核直接链接 FFmpeg；同时收集可执行文件的实际依赖，
+	// 避免 Homebrew 中 mpv 与 FFmpeg 版本不同时误配 ABI。
+	for _, line := range strings.Split(run("otool", "-L", binary), "\n")[1:] {
+		ref := strings.TrimSpace(strings.Split(line, " (compatibility")[0])
+		if ref == "" || system(ref) {
+			continue
+		}
+		child := resolve(ref, binary)
+		binaryRefs[ref] = child
+		queue = append(queue, child)
+	}
 	for len(queue) > 0 {
 		path := queue[0]
 		queue = queue[1:]
@@ -228,6 +241,9 @@ func main() {
 	}
 	if err = os.WriteFile(filepath.Join(resources, "linked-libraries.txt"), []byte(notices.String()), 0644); err != nil {
 		panic(err)
+	}
+	for ref, path := range binaryRefs {
+		run("install_name_tool", "-change", ref, "@executable_path/../Frameworks/"+libraries[path].name, binary)
 	}
 	for _, path := range []string{"/opt/homebrew/etc/ca-certificates/cert.pem", "/usr/local/etc/ca-certificates/cert.pem"} {
 		if _, err = os.Stat(path); err == nil {

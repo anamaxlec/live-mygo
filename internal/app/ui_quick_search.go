@@ -4,10 +4,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/platforms"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,12 +22,62 @@ type quickSearchState struct {
 	generation                      int
 }
 
+const allSearchSources = "全部来源"
+
+type sourceSearchResult struct {
+	rooms []platforms.Room
+	err   error
+}
+
+func searchAcrossSources(ctx context.Context, sources []platforms.Platform, query string, search func(context.Context, platforms.Platform, string) ([]platforms.Room, error)) <-chan sourceSearchResult {
+	results := make(chan sourceSearchResult, len(sources))
+	var pending sync.WaitGroup
+	for _, source := range sources {
+		pending.Go(func() {
+			rooms, err := search(ctx, source, query)
+			results <- sourceSearchResult{rooms, err}
+		})
+	}
+	go func() { pending.Wait(); close(results) }()
+	return results
+}
+
+func mergeSearchRooms(existing, incoming []platforms.Room) []platforms.Room {
+	seen := make(map[string]bool, len(existing))
+	for _, room := range existing {
+		seen[roomKey(room)] = true
+	}
+	for _, room := range incoming {
+		if !seen[roomKey(room)] {
+			existing = append(existing, room)
+			seen[roomKey(room)] = true
+		}
+	}
+	return existing
+}
+
+func (a *app) localSearchRooms(query string, source platforms.Platform) []platforms.Room {
+	if a.library == nil {
+		return nil
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	var matched []platforms.Room
+	for _, rooms := range [][]platforms.Room{a.favoriteRooms(), a.library.History} {
+		for _, room := range rooms {
+			if source != "" && room.Platform != source {
+				continue
+			}
+			if strings.Contains(strings.ToLower(room.Anchor+" "+room.Title+" "+room.ID+" "+a.library.Details(room).Alias), query) {
+				matched = mergeSearchRooms(matched, []platforms.Room{room})
+			}
+		}
+	}
+	return matched[:min(8, len(matched))]
+}
+
 func (a *app) openQuickSearch() {
 	if !a.quick.open {
-		a.quick.platform = a.platform().Name()
-		if a.page == "player" && a.targetRoom.Platform != "" {
-			a.quick.platform = a.targetRoom.Platform.Name()
-		}
+		a.quick.platform = allSearchSources
 		a.quick.query = ""
 		a.quick.rooms = nil
 		a.quick.err, a.quick.submitted = "", ""
@@ -50,31 +102,31 @@ func directRoomQuery(query string) bool {
 	return err == nil || strings.Contains(query, "://")
 }
 
+func (a *app) quickRoomPlatform() platforms.Platform {
+	p := a.platform()
+	if a.page == "player" && a.targetRoom.Platform != "" {
+		p = a.targetRoom.Platform
+	}
+	for _, source := range a.sourcePlatforms() {
+		if source.Name() == a.quick.platform {
+			return source
+		}
+	}
+	return p
+}
+
 func (a *app) submitQuickSearch() {
 	query := strings.TrimSpace(a.quick.query)
 	if query == "" {
 		return
 	}
-	p := platforms.Bilibili
-	if a.quick.platform == platforms.FLive.Name() {
-		p = platforms.FLive
-	}
-	if a.quick.platform == platforms.Douyin.Name() {
-		p = platforms.Douyin
-	}
-	if a.quick.platform == platforms.Qie.Name() {
-		p = platforms.Qie
-	}
-	if a.quick.platform == platforms.Huya.Name() {
-		p = platforms.Huya
-	}
-	if a.quick.platform == platforms.Douyu.Name() {
-		p = platforms.Douyu
-	}
+	p := a.quickRoomPlatform()
 	if directRoomQuery(query) {
-		if _, _, err := platforms.ParseRoom(p, query); err != nil {
+		if parsed, _, err := platforms.ParseRoom(p, query); err != nil {
 			a.quick.err = err.Error()
 			return
+		} else {
+			p = parsed
 		}
 		if a.player == nil {
 			a.quick.err = "播放器正在初始化"
@@ -94,21 +146,41 @@ func (a *app) submitQuickSearch() {
 	a.quick.loading = true
 	a.quick.err = ""
 	a.quick.submitted = query
-	a.quick.rooms = nil
+	selected := p
+	if a.quick.platform == allSearchSources {
+		selected = ""
+	}
+	a.quick.rooms = a.localSearchRooms(query, selected)
+	sources := []platforms.Platform{p}
+	if selected == "" {
+		sources = []platforms.Platform{platforms.Bilibili, platforms.Douyu, platforms.Huya, platforms.Douyin, platforms.Qie}
+	}
 	go func() {
 		defer cancel()
-		result, err := a.client.Search(ctx, p, query, 1)
-		a.win.Update(func() {
-			if a.closing || !a.quick.open || a.quick.generation != gen {
-				return
+		completed, failures := 0, 0
+		for result := range searchAcrossSources(ctx, sources, query, func(ctx context.Context, source platforms.Platform, query string) ([]platforms.Room, error) {
+			page, err := a.client.Search(ctx, source, query, 1)
+			return page.Rooms[:min(6, len(page.Rooms))], err
+		}) {
+			completed++
+			if result.err != nil && !errors.Is(result.err, context.Canceled) {
+				failures++
 			}
-			a.quick.loading = false
-			if err != nil {
-				a.quick.err = err.Error()
-				return
-			}
-			a.quick.rooms = result.Rooms[:min(8, len(result.Rooms))]
-		})
+			done, failed := completed == len(sources), failures
+			a.win.Update(func() {
+				if a.closing || !a.quick.open || a.quick.generation != gen {
+					return
+				}
+				a.quick.rooms = mergeSearchRooms(a.quick.rooms, result.rooms)
+				a.quick.loading = !done
+				if done && failed > 0 {
+					a.quick.err = "部分来源暂时无法搜索"
+					if failed == len(sources) && len(a.quick.rooms) == 0 {
+						a.quick.err = "暂时无法搜索，请稍后重试或直接粘贴直播间链接。"
+					}
+				}
+			})
+		}
 	}()
 }
 
@@ -120,7 +192,10 @@ func (a *app) quickSearchView(c *ui.Context) {
 	ui.DialogBase(c.Key("quick-search"), &a.quick.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(ui.RGBA(0, 0, 0, .26)).Justify(ui.Start).Padding(100, 24, 24, 24).Transition(ui.ElementTransition{Colors: true, Duration: 180 * time.Millisecond, Ease: ui.EaseOut, Enter: &ui.Motion{}, Exit: &ui.Motion{}})
 		panel.Width(590).MaxWidthPercent(100).Label("快捷搜索直播")
-		panel.Transition(ui.ElementTransition{Size: true, Duration: 180 * time.Millisecond, Ease: ui.EaseOut})
+		panel.TransformOrigin(.5, 0).Transition(ui.ElementTransition{
+			Size: true, Duration: 220 * time.Millisecond, Ease: ui.CubicBezier(.18, .9, .3, 1.08),
+			Enter: &ui.Motion{Y: -12, Scale: .965}, Exit: &ui.Motion{Y: -8, Scale: .985},
+		})
 		floatingPanel(panel, p)
 		ui.Column(c).Gap(13).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
@@ -138,7 +213,7 @@ func (a *app) quickSearchView(c *ui.Context) {
 				}
 			})
 			ui.Row(c).Gap(9).AlignItems(ui.Center).Children(func() {
-				if ui.Select(c, &a.quick.platform, a.sourceLabels()).Width(116).Height(29).FontSize(11.5).Label("快捷搜索平台").Changed() {
+				if ui.Select(c, &a.quick.platform, append([]string{allSearchSources}, a.sourceLabels()...)).Width(116).Height(29).FontSize(11.5).Label("快捷搜索平台").Changed() {
 					if a.quick.cancel != nil {
 						a.quick.cancel()
 					}
@@ -172,12 +247,12 @@ func (a *app) quickSearchView(c *ui.Context) {
 						}
 					}
 					for _, room := range rooms {
-						b := ui.ButtonBase(c.Key(roomKey(room))).FillWidth().Height(62).Padding(8).Gap(11).Radius(8).AlignItems(ui.Center).Label("切换到 " + room.Anchor + " " + room.Title)
+						b := ui.ButtonBase(c.Key(roomKey(room))).FillWidth().Height(62).Padding(8).Gap(11).Radius(8).AlignItems(ui.Center).Label("切换到 " + a.displayRoomName(room) + " " + room.Title)
 						buttonFeedback(b, p)
 						b.Children(func() {
-							ui.Box(c).Size(64, 40).Radius(6).Clip().Shrink(0).Children(func() { a.coverImage(c, room.Cover, 6) })
+							ui.Box(c).Size(64, 40).Radius(6).Clip().Shrink(0).Children(func() { a.coverImage(c, room.Cover, 6); sourceBadge(c, room.Platform, true) })
 							ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-								ui.Text(c, roomLabel(room)).FontSize(12).FontWeight(500).TextColor(p.text).SingleLine()
+								ui.Text(c, a.displayRoomName(room)).FontSize(12).FontWeight(500).TextColor(p.text).SingleLine()
 								ui.Text(c, room.Platform.Name()+" · "+room.Title).FontSize(10.5).TextColor(p.muted).SingleLine()
 							})
 							ui.Icon(c, iconPlay).Size(13, 13).TextColor(p.muted)

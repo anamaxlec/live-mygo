@@ -7,7 +7,7 @@ bundle="build/LiveMyGo.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 go run ./cmd/icon
 iconutil -c icns build/AppIcon.iconset -o "$bundle/Contents/Resources/AppIcon.icns"
-go build -o "$bundle/Contents/MacOS/live-mygo" .
+CGO_CFLAGS="${CGO_CFLAGS:-} -I$(brew --prefix ffmpeg)/include" CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$(brew --prefix ffmpeg)/lib" go build -o "$bundle/Contents/MacOS/live-mygo" .
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -126,6 +126,10 @@ func (a *app) chatResizeHandle(c *ui.Context, width, edge float32) {
 	}
 }
 func (a *app) closePlayback() {
+	if a.parent != nil {
+		a.quit()
+		return
+	}
 	a.cancelSleep()
 	a.pausedOnLeave = false
 	if a.companion {
@@ -189,6 +193,19 @@ func (a *app) toggleCompanion() {
 		a.win.SetFullScreen(false)
 	}
 	a.companion = !a.companion
+	if a.parent != nil {
+		if a.companion {
+			if a.chatCancel != nil {
+				a.chatCancel()
+				a.chatCancel = nil
+			}
+			a.chatGeneration++
+			a.chatRoomKey = ""
+			a.clearFlyingChat()
+		} else if a.stream != nil {
+			a.startChat(false)
+		}
+	}
 	a.win.SetAlwaysOnTop(a.companion)
 	if a.companion {
 		a.companionBounds = a.win.ContentBounds()

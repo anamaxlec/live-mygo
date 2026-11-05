@@ -10,10 +10,25 @@ import (
 )
 
 type State struct {
-	Favorites   []platforms.Room `json:"favorites"`
-	History     []platforms.Room `json:"history"`
-	Preferences Preferences      `json:"preferences"`
-	path        string
+	Favorites       []platforms.Room           `json:"favorites"`
+	History         []platforms.Room           `json:"history"`
+	Preferences     Preferences                `json:"preferences"`
+	FavoriteDetails map[string]FavoriteDetails `json:"favorite_details,omitempty"`
+	LastSession     *PlaybackSession           `json:"last_session,omitempty"`
+	path            string
+}
+
+type PlaybackSession struct {
+	Room    platforms.Room `json:"room"`
+	Quality int            `json:"quality"`
+	Source  string         `json:"source,omitempty"`
+}
+
+type FavoriteDetails struct {
+	Alias  string `json:"alias,omitempty"`
+	Group  string `json:"group,omitempty"`
+	Pinned bool   `json:"pinned,omitempty"`
+	Notify bool   `json:"notify,omitempty"`
 }
 
 type Preferences struct {
@@ -22,6 +37,15 @@ type Preferences struct {
 	ChatWidth         float64       `json:"chat_width"`
 	Appearance        string        `json:"appearance"`
 	Volume            float64       `json:"volume"`
+	PlayerBackend     string        `json:"player_backend,omitempty"`
+	UpdateChannel     string        `json:"update_channel,omitempty"`
+	AudioOnly         bool          `json:"audio_only,omitempty"`
+	ResumeSession     bool          `json:"resume_session,omitempty"`
+	NotifyEnabled     bool          `json:"notify_enabled,omitempty"`
+	NotifyQuiet       bool          `json:"notify_quiet,omitempty"`
+	NotifyStartHour   int           `json:"notify_start_hour,omitempty"`
+	NotifyEndHour     int           `json:"notify_end_hour,omitempty"`
+	NotifyInterval    int           `json:"notify_interval_minutes,omitempty"`
 	DefaultQuality    string        `json:"default_quality"`
 	PauseWhenBrowsing bool          `json:"pause_when_browsing"`
 	Danmaku           bool          `json:"danmaku"`
@@ -146,6 +170,14 @@ func (s *State) UpdateFavorites(fresh []platforms.Room) error {
 }
 
 func (s *State) Watch(r platforms.Room) error {
+	return s.watch(r, nil)
+}
+
+func (s *State) WatchSession(r platforms.Room, quality int, source string) error {
+	return s.watch(r, &PlaybackSession{Room: r, Quality: quality, Source: source})
+}
+
+func (s *State) watch(r platforms.Room, session *PlaybackSession) error {
 	next := []platforms.Room{r}
 	for _, v := range s.History {
 		if !same(v, r) && len(next) < 100 {
@@ -153,9 +185,14 @@ func (s *State) Watch(r platforms.Room) error {
 		}
 	}
 	previous := s.History
+	previousSession := s.LastSession
 	s.History = next
+	if session != nil {
+		s.LastSession = session
+	}
 	if err := s.save(); err != nil {
 		s.History = previous
+		s.LastSession = previousSession
 		return err
 	}
 	return nil

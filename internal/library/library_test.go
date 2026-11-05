@@ -138,3 +138,29 @@ func TestFailedWriteDoesNotChangeVisibleState(t *testing.T) {
 		t.Fatal("保存失败应保留原有偏好")
 	}
 }
+
+func TestPlaybackBackendChoiceSurvivesReloadAndLegacyConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.json")
+	if err := os.WriteFile(path, []byte(`{"preferences":{"volume":38}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Preferences.PlayerBackend != "" {
+		t.Fatal("旧配置不应被强制切换")
+	}
+	next := state.Preferences
+	next.PlayerBackend = "vt"
+	if err := state.SetPreferences(next); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Preferences.PlayerBackend != "vt" || loaded.Preferences.Volume != 38 {
+		t.Fatal(loaded.Preferences)
+	}
+}

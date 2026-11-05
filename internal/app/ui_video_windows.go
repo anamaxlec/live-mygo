@@ -6,6 +6,7 @@ import (
 	"image"
 
 	"github.com/egoist/mygo/ui"
+	"live-mygo/internal/player"
 )
 
 // takeVideoFrame 在 UI 线程取走最新一帧，并释放上一帧缓冲。
@@ -13,7 +14,11 @@ func (a *app) takeVideoFrame() {
 	if a.surface == nil {
 		return
 	}
-	pix, w, h, stride, ok := a.surface.TakeFrame()
+	source, ok := a.surface.(player.FrameSource)
+	if !ok {
+		return
+	}
+	pix, w, h, stride, ok := source.TakeFrame()
 	if !ok {
 		return
 	}
@@ -24,7 +29,7 @@ func (a *app) takeVideoFrame() {
 		a.videoBitmap.Update(img)
 	}
 	if a.videoPix != nil {
-		a.surface.ReleaseFrame(a.videoPix)
+		source.ReleaseFrame(a.videoPix)
 	}
 	a.videoPix = pix
 }

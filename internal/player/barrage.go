@@ -77,6 +77,10 @@ type barrageState struct {
 }
 
 func (p *Player) ConfigureBarrage(enabled bool, size, opacity float64, options ...float64) {
+	if p.vt != nil {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	size = max(20, min(40, size))
@@ -97,6 +101,10 @@ func (p *Player) ConfigureBarrage(enabled bool, size, opacity float64, options .
 }
 
 func (p *Player) AddBarrage(text string, color uint32) {
+	if p.vt != nil {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.barrage.Enabled || p.renderer == nil || !p.renderer.surface.visible.Load() {
@@ -157,6 +165,10 @@ func (p *Player) clearBarrage() {
 }
 
 func (p *Player) TickBarrage() error {
+	if p.vt != nil {
+		return nil
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle == 0 || !p.barrage.Enabled || p.renderer == nil || !p.renderer.surface.visible.Load() {
@@ -200,9 +212,20 @@ func (p *Player) TickBarrage() error {
 }
 
 // ClearBarrage 移除当前屏幕上的消息，接收连接继续工作。
-func (p *Player) ClearBarrage() { p.mu.Lock(); defer p.mu.Unlock(); p.clearBarrage() }
+func (p *Player) ClearBarrage() {
+	if p.vt != nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearBarrage()
+}
 
 func (p *Player) BarrageActive() bool {
+	if p.vt != nil {
+		return false
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.barrage.Enabled && p.renderer != nil && p.renderer.surface.visible.Load() && (len(p.barrage.Items) > 0 || p.barrage.Drawn)

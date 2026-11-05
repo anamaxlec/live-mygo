@@ -175,6 +175,9 @@ func (a *app) watchHeader(c *ui.Context) {
 		if a.busy {
 			ui.Spinner(c).Size(12, 12).MarginX(6)
 		}
+		if a.recordingPath != "" {
+			ui.Text(c, a.recordingLabel()).FontSize(11).TextColor(p.danger).MarginX(6)
+		}
 		if iconButton(c.Key("watch-search"), iconSearch, shortcutLabel("快捷搜索直播 · ⌘L")).Clicked() {
 			a.openQuickSearch()
 		}
@@ -189,6 +192,15 @@ func (a *app) watchHeader(c *ui.Context) {
 		}
 		more := iconButton(c.Key("room-options"), iconMore, "直播间选项")
 		more.Menu(func(m *ui.Menu) {
+			a.captureMenu(m)
+			m.Separator()
+			if m.Item("只听声音").Checked(a.audioOnly()).Disabled(a.audioModeChanging).Chosen() {
+				a.setAudioOnly(!a.audioOnly())
+			}
+			if m.Item("回到实时").Disabled(a.stream == nil || a.busy).Chosen() {
+				a.reloadStream()
+			}
+			m.Separator()
 			if a.library != nil && m.Item("窗口跟随画面比例").Checked(a.library.Preferences.FollowVideo).Chosen() {
 				a.toggleFollowVideo()
 			}
@@ -211,7 +223,10 @@ func (a *app) watchHeader(c *ui.Context) {
 func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 	a.takeVideoFrame()
 	video := ui.Box(c.Key("video")).Width(frame.W).FillHeight().Shrink(0).MinHeight(0).Role(ui.RoleGroup).Focusable().FocusRing(false).Bind(&a.transportHandle).Label("直播画面，双击切换全屏")
-	if runtime.GOOS == "windows" || !a.shown {
+	if a.companion {
+		video.FillWidth()
+	}
+	if runtime.GOOS == "windows" || !a.shown || a.audioOnly() {
 		video.Background(ui.Hex("#0b0b0e"))
 	}
 	width := frame.W
@@ -253,10 +268,19 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 		}
 	}
 	video.Children(func() {
-		if a.videoBitmap != nil {
+		if a.videoBitmap != nil && !a.audioOnly() {
 			ui.Image(c, a.videoBitmap).Absolute().Left(0).Top(0).Width(frame.W).Height(frame.H).Fit(ui.FillBox).Role(ui.RoleNone).PassThrough()
 		}
 		a.barrageView(c, frame.W, frame.H)
+		if a.audioOnly() {
+			ui.Column(c).Absolute().Fill().Center().Gap(12).Children(func() {
+				ui.Icon(c, iconVolume).Size(38, 38).TextColor(ui.RGBA(255, 255, 255, .65))
+				ui.Text(c, "只听声音").FontSize(14).TextColor(ui.RGBA(255, 255, 255, .8))
+				if ui.Button(c, "恢复画面").Height(30).FontSize(12).Disabled(a.audioModeChanging).Clicked() {
+					a.setAudioOnly(false)
+				}
+			})
+		}
 		if a.companion {
 			a.companionHeader(c, opacity)
 		}
@@ -288,7 +312,7 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 		if !a.surface.SetBounds(float64(frame.X), float64(frame.Y), float64(frame.W), float64(frame.H), float64(height)) {
 			c.After(12 * time.Millisecond)
 		}
-		a.surface.Show(a.shown && !a.minimized)
+		a.surface.Show(a.shown && !a.minimized && !a.audioOnly())
 	}
 }
 
@@ -437,6 +461,7 @@ func (a *app) setVolume() {
 	a.command("set", "volume", strconv.FormatFloat(a.volume, 'f', 0, 64))
 	if a.volume > 0 {
 		a.stats.Muted = false
+		a.claimAudio()
 		a.command("set", "mute", "no")
 	}
 	if a.library != nil {
@@ -460,7 +485,7 @@ func (a *app) streamControls(c *ui.Context) {
 		if !a.barrageVisible() {
 			danmakuIcon, danmakuLabel = iconDanmakuOff, "开启画面弹幕 · D"
 		}
-		if a.mediaButton(c.Key("barrage"), danmakuIcon, danmakuLabel, a.barrageVisible()).Clicked() {
+		if a.mediaButton(c.Key("barrage"), danmakuIcon, danmakuLabel, a.barrageVisible()).Disabled(a.audioOnly()).Clicked() {
 			a.toggleBarrage()
 		}
 		settings := a.mediaButton(c.Key("barrage-settings"), iconSettings, "弹幕与画面设置")
@@ -637,9 +662,13 @@ func (a *app) togglePause() {
 	if !a.shown || a.player == nil {
 		return
 	}
+	if !a.stats.Paused {
+		a.stopRecording()
+	}
 	a.pausedOnLeave = false
 	a.revealControls()
 	a.stats.Paused = !a.stats.Paused
+	a.updateSystemPlayback()
 	value := "no"
 	if a.stats.Paused {
 		value = "yes"
@@ -670,6 +699,9 @@ func (a *app) toggleMute() {
 		return
 	}
 	a.stats.Muted = !a.stats.Muted
+	if !a.stats.Muted {
+		a.claimAudio()
+	}
 	value := "no"
 	if a.stats.Muted {
 		value = "yes"

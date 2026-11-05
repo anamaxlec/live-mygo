@@ -42,6 +42,7 @@ func (a *app) view(c *ui.Context) {
 	}
 	a.applyTheme(c)
 	defer a.quickSearchView(c)
+	defer a.favoriteEditorView(c)
 	defer func() {
 		if a.toast != "" {
 			c.Toast(a.toast)
@@ -232,24 +233,33 @@ func (a *app) navItem(c *ui.Context, id, label string, icon *ui.SVG, count int) 
 	bg := ui.Transparent
 	ink := p.muted
 	if a.page == id {
-		bg = p.selected
 		ink = p.accent
 	} else if b.Hovered() {
 		bg = p.hover
 	}
 	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
 	b.Children(func() {
-		ui.Box(c).Size(20, 20).Shrink(0).Center().Children(func() {
-			size := float32(17)
-			if id == "bilibili" || id == "douyu" || id == "huya" || id == "douyin" || id == "qie" || id == string(platforms.FLive) {
-				size = 20
+		navigationSelection(c, "main", a.page == id, p)
+		ui.Row(c).Absolute().Fill().PaddingX(8).Gap(10).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(20, 20).Shrink(0).Center().Children(func() {
+				size := float32(17)
+				if id == "bilibili" || id == "douyu" || id == "huya" || id == "douyin" || id == "qie" || id == string(platforms.FLive) {
+					size = 20
+				}
+				pose := ui.Pose{}
+				if (b.Hovered() || b.FocusVisible()) && !c.Preferences().ReduceMotion {
+					pose = ui.Pose{Y: -1, Scale: 1.07, Rotate: -6}
+				}
+				if b.Pressed() && !c.Preferences().ReduceMotion {
+					pose = ui.Pose{Scale: .88, Rotate: 3}
+				}
+				ui.Icon(c, icon).Size(size, size).TextColor(ink).AnimatePose(pose, playfulSpring)
+			})
+			ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(p.text).Grow(1)
+			if count > 0 {
+				ui.Textf(c, "%d", count).FontSize(11).TextColor(p.muted)
 			}
-			ui.Icon(c, icon).Size(size, size).TextColor(ink)
 		})
-		ui.Text(c, label).FontSize(13).FontWeight(500).TextColor(p.text).Grow(1)
-		if count > 0 {
-			ui.Textf(c, "%d", count).FontSize(11).TextColor(p.muted)
-		}
 	})
 	if b.Clicked() {
 		a.openPage(id)
@@ -269,6 +279,9 @@ func (a *app) playbackState() string {
 	if a.stats.Paused {
 		return "已暂停"
 	}
+	if a.audioOnly() {
+		return "只听声音"
+	}
 	return "直播中"
 }
 func (a *app) nowPlayingCard(c *ui.Context) {
@@ -280,11 +293,7 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 	ui.Column(c.Key("now-playing-card")).Padding(10).Gap(9).Radius(11).Background(p.hover).Border(1, p.line).Children(func() {
 		b := ui.ButtonBase(c.Key("now-playing")).FillWidth().Gap(9).AlignItems(ui.Center).Radius(7).Label("返回正在播放的直播间").Tooltip(r.Title)
 		b.Children(func() {
-			ui.Box(c).Size(40, 40).Radius(7).Clip().Background(p.soft).Children(func() { a.coverImage(c, r.Cover, 7) })
-			ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-				ui.Text(c, roomLabel(r)).FontSize(12).FontWeight(600).TextColor(p.text).SingleLine()
-				ui.Text(c, r.Title).FontSize(10.5).TextColor(p.muted).SingleLine()
-			})
+			a.channelCardIdentity(c, r)
 		})
 		if b.Clicked() {
 			a.returnPage = a.page
@@ -493,11 +502,14 @@ func (a *app) loadCatalog(page int) {
 }
 
 func (a *app) cover(raw string) *ui.Bitmap {
-	if raw == "" || a.ctx == nil || a.win == nil {
+	if raw == "" {
 		return nil
 	}
 	if img := a.covers[raw]; img != nil {
 		return img
+	}
+	if a.ctx == nil || a.win == nil {
+		return nil
 	}
 	if a.coverLoading[raw] || time.Now().Before(a.coverRetry[raw]) {
 		return nil

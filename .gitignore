@@ -1,6 +1,7 @@
 /build/
 /data/
 /.local/
+/.codex-attachments/
 /rsrc_windows_*.syso
 *.log
 .DS_Store

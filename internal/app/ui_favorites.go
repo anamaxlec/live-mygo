@@ -23,6 +23,10 @@ func (a *app) favoriteRooms() []platforms.Room {
 		}
 	}
 	sort.SliceStable(rooms, func(i, j int) bool {
+		ip, jp := a.library.Details(rooms[i]).Pinned, a.library.Details(rooms[j]).Pinned
+		if ip != jp {
+			return ip
+		}
 		x, xok := a.libraryRooms[roomKey(rooms[i])]
 		y, yok := a.libraryRooms[roomKey(rooms[j])]
 		return xok && x.Live && (!yok || !y.Live)
@@ -31,6 +35,10 @@ func (a *app) favoriteRooms() []platforms.Room {
 }
 
 func (a *app) refreshFavorites(force bool) {
+	a.refreshFavoriteRooms(force, false)
+}
+
+func (a *app) refreshFavoriteRooms(force, notificationsOnly bool) {
 	if a.library == nil || a.win == nil || a.libraryRefreshing || len(a.library.Favorites) == 0 {
 		return
 	}
@@ -39,6 +47,18 @@ func (a *app) refreshFavorites(force bool) {
 	}
 	a.libraryRefreshing = true
 	rooms := append([]platforms.Room(nil), a.library.Favorites...)
+	if notificationsOnly {
+		rooms = nil
+		for _, room := range a.library.Favorites {
+			if a.library.Details(room).Notify {
+				rooms = append(rooms, room)
+			}
+		}
+	}
+	if len(rooms) == 0 {
+		a.libraryRefreshing = false
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 		defer cancel()
@@ -83,7 +103,13 @@ func (a *app) refreshFavorites(force bool) {
 			}
 			a.libraryRefreshing = false
 			a.libraryRefresh = time.Now()
-			a.libraryRooms = results
+			a.notifyLiveRooms(results, time.Now())
+			if a.libraryRooms == nil {
+				a.libraryRooms = map[string]platforms.Room{}
+			}
+			for key, room := range results {
+				a.libraryRooms[key] = room
+			}
 			fresh := make([]platforms.Room, 0, len(results))
 			for _, r := range results {
 				fresh = append(fresh, r)

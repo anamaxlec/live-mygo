@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/accounts"
 	"live-mygo/internal/platforms"
+	"live-mygo/internal/player"
 	"strings"
 )
 
@@ -81,12 +82,14 @@ func (a *app) settingsView(c *ui.Context) {
 				buttonFeedback(b, p)
 				ink := p.muted
 				if a.settings.tab == tab.id {
-					b.Background(p.selected)
 					ink = p.accent
 				}
 				b.Children(func() {
-					ui.Icon(c, tab.icon).Size(16, 16).TextColor(ink)
-					ui.Text(c, tab.label).FontSize(12.5).FontWeight(500).TextColor(p.text)
+					navigationSelection(c, "settings", a.settings.tab == tab.id, p)
+					ui.Row(c).Absolute().Fill().PaddingX(10).Gap(10).AlignItems(ui.Center).Children(func() {
+						ui.Icon(c, tab.icon).Size(16, 16).TextColor(ink)
+						ui.Text(c, tab.label).FontSize(12.5).FontWeight(500).TextColor(p.text)
+					})
 				})
 				if b.Clicked() {
 					a.settings.tab = tab.id
@@ -217,6 +220,7 @@ func (a *app) generalSettings(c *ui.Context) {
 					a.savePreferences(next)
 				}
 			})
+			preferenceSwitch(c, true, "启动时恢复上次直播（静音）", a.library.Preferences.ResumeSession, func(value bool) { next := a.library.Preferences; next.ResumeSession = value; a.savePreferences(next) })
 		})
 		settingsGroup(c, "外观", func() {
 			settingsRow(c, "应用外观", func() {
@@ -231,6 +235,8 @@ func (a *app) generalSettings(c *ui.Context) {
 				}
 			})
 		})
+		a.backupSettings(c)
+		a.notificationSettings(c)
 		ui.Column(c).Gap(13).PaddingX(3).Children(func() {
 			ui.Text(c, "键盘快捷键").FontSize(11.5).FontWeight(600).TextColor(p.muted)
 			for _, shortcut := range [][2]string{{"快捷搜索直播", shortcutLabel("⌘L / ⌘K")}, {"搜索当前页面 / 观看时快捷搜索", shortcutLabel("⌘F")}, {"暂停 / 继续", "Space"}, {"唤出播放器控制条", "K / Tab"}, {"静音 / 取消静音", "M"}, {"切换画面弹幕", "D"}, {"刷新 / 重新连接", shortcutLabel("⌘R")}, {"全屏", shortcutLabel("⌃⌘F")}, {"切换页面", shortcutLabel("⌘1 — ⌘4")}, {"返回 / 退出全屏", "Esc"}} {
@@ -265,6 +271,37 @@ func defaultQualityLabel(value string) string {
 func (a *app) playbackSettings(c *ui.Context) {
 	p := colors(c.Theme())
 	ui.Column(c).Gap(24).Children(func() {
+		settingsGroup(c, "观看", func() {
+			settingsRow(c, "只听声音", func() {
+				enabled := a.audioOnly()
+				if ui.Switch(c, &enabled).Label("只听声音").Disabled(a.audioModeChanging).Changed() {
+					a.setAudioOnly(enabled)
+				}
+			})
+		})
+		if player.NativeBackendAvailable() {
+			settingsGroup(c, "", func() {
+				settingsRow(c, "播放内核", func() {
+					label := "mpv"
+					if player.NormalizeBackend(a.library.Preferences.PlayerBackend) == "vt" {
+						label = "原生硬解（测试）"
+					}
+					if ui.Select(c, &label, []string{"mpv", "原生硬解（测试）"}).Width(170).Height(30).FontSize(12).Label("播放内核").Changed() {
+						next := a.library.Preferences
+						next.PlayerBackend = "mpv"
+						if label == "原生硬解（测试）" {
+							next.PlayerBackend = "vt"
+						}
+						a.savePreferences(next)
+					}
+				})
+				current := "mpv"
+				if a.surface != nil && a.surface.Metrics().Backend == "videotoolbox-metal" {
+					current = "原生硬解"
+				}
+				ui.Text(c, "重新打开应用后生效。当前使用："+current).FontSize(10.5).TextColor(p.muted).Padding(0, 15, 14, 15)
+			})
+		}
 		settingsGroup(c, "清晰度", func() {
 			settingsRow(c, "默认画质", func() {
 				label := defaultQualityLabel(a.library.Preferences.DefaultQuality)
@@ -410,7 +447,7 @@ func (a *app) accountSettings(c *ui.Context) {
 func (a *app) aboutView(c *ui.Context) {
 	p := colors(c.Theme())
 	ui.Column(c).AlignItems(ui.Center).Gap(9).Padding(10, 0).Children(func() {
-		ui.Image(c, appIcon()).Size(82, 82)
+		playfulMascot(c)
 		ui.Text(c, "Live MyGo").FontSize(20).FontWeight(650).TextColor(p.text)
 		version := ui.ButtonBase(c).Height(28).PaddingX(10).Radius(7).Center().Label("版本号")
 		buttonFeedback(version, p)
@@ -419,6 +456,7 @@ func (a *app) aboutView(c *ui.Context) {
 			c.Toast("赛事入口已开启")
 		}
 		ui.Text(c, "原生播放器练手项目").FontSize(12).TextColor(p.muted).Margin(2, 0, 16, 0)
+		a.updateControls(c)
 		ui.Column(c).WidthPercent(100).Gap(10).Children(func() {
 			for _, reference := range [][2]string{{"MyGo", "https://github.com/egoist/mygo"}, {"Pure Live", "https://github.com/liuchuancong/pure_live"}, {"Simple Live", "https://github.com/xuanxuan123xuan/dart_simple_live"}, {"Lucide Icons", "https://lucide.dev/"}, {"mpv", "https://mpv.io/"}} {
 				ui.Row(c).Gap(10).Children(func() {

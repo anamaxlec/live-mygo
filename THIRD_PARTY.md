@@ -14,6 +14,8 @@
 
 应用图标的可编辑源是 `assets/app-icon.svg`。深色 SVG 和 PNG、ICNS 由 `cmd/icon` 生成。
 
+图标与内置应援角色采用《BanG Dream! It's MyGO!!!!!》高松灯的 Q 版二次创作形象，角色设定参考 [MyGO 官方角色页](https://anime.bang-dream.com/mygo/character/tomori/) 和 [官方迷你动画角色页](https://anime.bang-dream.com/bandorichan/character/mygo/)。矢量描摹源与应用内纹理共用同一造型。
+
 来源标识位于 `assets/platforms/`，按 [哔哩哔哩](https://www.bilibili.com/)、[斗鱼](https://open.douyu.com/) 、[虎牙](https://hd.huya.com/pc/contactUs/)、[抖音](https://live.douyin.com/) 和 [企鹅体育](https://www.qie.tv/) 官网图形重绘为单色 SVG，用于界面中的来源识别。
 
 功能和界面参考：[Pure Live](https://github.com/liuchuancong/pure_live)、[Simple Live](https://github.com/xuanxuan123xuan/dart_simple_live)、[MyGo CloudMusic](https://github.com/egoist/mygo-cloudmusic)、[IINA](https://iina.io/)。当前源码许可证原文位于仓库 `LICENSE`。

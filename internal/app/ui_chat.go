@@ -25,7 +25,10 @@ type recentChat struct {
 
 func (a *app) chatVisible() bool { return a.library != nil && a.library.Preferences.ChatPanel }
 func (a *app) barrageVisible() bool {
-	return a.targetRoom.Platform != platforms.FLive && a.library != nil && a.library.Preferences.Danmaku
+	if a.parent != nil && a.companion {
+		return false
+	}
+	return a.targetRoom.Platform != platforms.FLive && a.library != nil && a.library.Preferences.Danmaku && !a.audioOnly()
 }
 
 func (a *app) toggleChat() {
@@ -38,6 +41,10 @@ func (a *app) toggleChat() {
 	}
 }
 func (a *app) toggleBarrage() {
+	if a.audioOnly() {
+		a.toast = "只听声音时不显示画面弹幕"
+		return
+	}
 	if a.targetRoom.Platform == platforms.FLive {
 		return
 	}
@@ -79,6 +86,7 @@ func (a *app) startChat(force bool) {
 	if a.chatRoomKey != key {
 		a.clearChat()
 		a.chatDropped = 0
+		a.chatFailureExpanded = false
 	}
 	a.chatRoomKey = key
 	a.chatStatus = "正在连接"
@@ -89,6 +97,9 @@ func (a *app) startChat(force bool) {
 		a.win.Update(func() {
 			if !a.closing && a.chatGeneration == gen {
 				a.chatStatus = status
+				if strings.Contains(status, "失败") || strings.Contains(status, "断开") {
+					a.recordFailure("chat", status)
+				}
 			}
 		})
 	}
@@ -234,8 +245,11 @@ func (a *app) chatView(c *ui.Context) {
 		prefs = a.library.Preferences
 	}
 	backdrop := p.bg
-	visible := make([]int, 0, len(a.chatMessages))
-	for i, msg := range a.chatMessages {
+	// 原生菜单的 Chosen 会在本轮构建中修改消息。列表闭包必须使用这一帧
+	// 的切片，不能把旧的可见下标用于清空后的数据。
+	messages := a.chatMessages
+	visible := make([]int, 0, len(messages))
+	for i, msg := range messages {
 		if a.chatOnlySC && msg.Kind != "superchat" {
 			continue
 		}
@@ -247,7 +261,7 @@ func (a *app) chatView(c *ui.Context) {
 	if a.chatList.AtEnd() && a.chatList.FollowEnd {
 		a.chatSeen = a.chatNext
 	}
-	a.chatList.Key = func(i int) any { return a.chatMessages[visible[i]].ID }
+	a.chatList.Key = func(i int) any { return messages[visible[i]].ID }
 	radius := watchFrameRadius - watchFrameBorder
 	if a.win != nil && a.win.IsFullScreen() {
 		radius = 0
@@ -300,14 +314,14 @@ func (a *app) chatView(c *ui.Context) {
 				if m.Item("复制可见消息").Disabled(len(visible) == 0).Chosen() {
 					var lines []string
 					for _, i := range visible {
-						msg := a.chatMessages[i]
+						msg := messages[i]
 						lines = append(lines, msg.User+"："+msg.Text)
 					}
 					mygo.Clipboard.WriteText(strings.Join(lines, "\n"))
 					a.toast = "已复制弹幕"
 				}
 				if m.Item("清空当前弹幕").Disabled(len(a.chatMessages) == 0).Chosen() {
-					a.clearChat()
+					a.clearChatWithMotion()
 				}
 				m.Separator()
 				if m.Item("关键词与用户屏蔽").Chosen() {
@@ -319,20 +333,27 @@ func (a *app) chatView(c *ui.Context) {
 			})
 		})
 		ui.Box(c).Height(1).Shrink(0).Background(p.line)
-		area := ui.Box(c.Key("chat-list-area")).Grow(1).MinHeight(0)
+		area := ui.Box(c.Key(chatAreaID(roomKey(a.targetRoom)))).Grow(1).MinHeight(0)
 		target := float32(0)
 		if prefs.ChatConnection && a.targetRoom.ID != "" && a.connectionPending() {
 			target = 1
 		}
 		opacity := area.AnimateTo("connection-opacity", target, ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut})
 		area.Children(func() {
-			if a.targetRoom.Platform == platforms.FLive {
-				a.raceSourceList(c)
-			} else if len(visible) > 0 {
-				ui.List(c, &a.chatList, len(visible), func(i int) { a.chatBubble(c, a.chatMessages[visible[i]]) }).Fill().PaddingY(9)
-			} else {
-				a.chatEmptyView(c)
-			}
+			bounds := area.Bounds()
+			ui.Box(c.Key(chatContentID(a.chatClearRun))).Fill().Transition(ui.ElementTransition{
+				Duration: 520 * time.Millisecond, Ease: ui.CubicBezier(.45, 0, .7, 1),
+				Exit: &ui.Motion{Scale: .035, X: bounds.W * .1, Y: bounds.H * .3, Rotate: -14, Opacity: .15},
+			}).Children(func() {
+				if a.targetRoom.Platform == platforms.FLive {
+					a.raceSourceList(c)
+				} else if len(visible) > 0 {
+					ui.List(c, &a.chatList, len(visible), func(i int) { a.chatBubble(c, messages[visible[i]]) }).Fill().PaddingY(9)
+				} else {
+					a.chatEmptyView(c)
+				}
+			})
+			a.chatEnvelope(c, area)
 			if len(visible) > 0 && (!a.chatList.AtEnd() || !a.chatList.FollowEnd) {
 				ui.Row(c).Absolute().Bottom(12).Left(0).Right(0).Justify(ui.Center).Children(func() {
 					label := "回到最新弹幕"
@@ -493,6 +514,7 @@ func (a *app) chatBody(c *ui.Context, msg platforms.ChatMessage, size float32, c
 }
 
 func (a *app) clearChat() {
+	a.chatClearActive = false
 	a.chatMessages = nil
 	a.chatRecent = nil
 	a.chatSeen = a.chatNext

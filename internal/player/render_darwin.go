@@ -65,9 +65,17 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 		})
 		gl := glInit{GetProc: proc}
 		api := []byte("opengl\x00")
-		params := []renderParam{{Type: 1, Data: unsafe.Pointer(&api[0])}, {Type: 2, Data: unsafe.Pointer(&gl)}, {}}
+		// VideoToolbox 帧不能由 swscale 直接读取；截图交给 GPU 渲染线程处理。
+		// advanced control 要求即使窗口隐藏也处理 update，下面只跳过实际呈现。
+		advanced := int32(1)
+		params := []renderParam{{Type: 1, Data: unsafe.Pointer(&api[0])}, {Type: 2, Data: unsafe.Pointer(&gl)}, {Type: 10, Data: unsafe.Pointer(&advanced)}, {}}
 		var ctx uintptr
-		if rc := create(&ctx, p.handle, &params[0]); rc < 0 {
+		s.frameMu.Lock()
+		s.lock(s.context)
+		rc := create(&ctx, p.handle, &params[0])
+		s.unlock(s.context)
+		s.frameMu.Unlock()
+		if rc < 0 {
 			ready <- fmt.Errorf("libmpv Render API 初始化失败：%s", p.api.errorString(rc))
 			return
 		}
@@ -81,27 +89,45 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 			case <-r.stop:
 				return
 			case <-s.wake:
-				if !s.visible.Load() {
+				s.frameMu.Lock()
+				s.lock(s.context)
+				if rc := s.makeCurrent(s.context); rc != 0 {
+					message := fmt.Sprintf("视频 context 恢复失败：%d", rc)
+					s.renderErr.Store(&message)
+					s.unlock(s.context)
+					s.frameMu.Unlock()
 					continue
 				}
-				// 主线程的最新尺寸优先于下一帧，避免连续播放时尺寸更新饥饿。
-				if s.resizePending.Load() {
+				flags := update(ctx)
+				// update 也会处理截图等 GPU 请求，不能因遮挡或调整尺寸略过。
+				if !s.visible.Load() || s.resizePending.Load() {
+					if flags&1 != 0 {
+						skip := int32(1)
+						params := []renderParam{{Type: 13, Data: unsafe.Pointer(&skip)}, {}}
+						render(ctx, &params[0])
+					}
+					s.unlock(s.context)
+					s.frameMu.Unlock()
 					continue
 				}
 				changed := s.dirty.Swap(false)
-				if update(ctx)&1 == 0 && !changed {
+				if flags&1 == 0 && !changed {
+					s.unlock(s.context)
+					s.frameMu.Unlock()
 					continue
 				}
-				s.frameMu.Lock()
 				fbo := glFBO{Width: int32(s.width.Load()), Height: int32(s.height.Load())}
 				if fbo.Width <= 0 || fbo.Height <= 0 {
+					s.unlock(s.context)
 					s.frameMu.Unlock()
 					continue
 				}
 				flip := int32(1)
 				params := []renderParam{{Type: 3, Data: unsafe.Pointer(&fbo)}, {Type: 4, Data: unsafe.Pointer(&flip)}, {}}
-				s.lock(s.context)
-				render(ctx, &params[0])
+				if rc := render(ctx, &params[0]); rc < 0 {
+					message := fmt.Sprintf("视频帧渲染失败：%d", rc)
+					s.renderErr.Store(&message)
+				}
 				s.flush(s.context)
 				s.unlock(s.context)
 				s.frameMu.Unlock()

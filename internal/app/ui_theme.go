@@ -37,6 +37,36 @@ func (a *app) savePreferences(next library.Preferences) {
 		}
 		return
 	}
+	a.applySavedPreferences(before, next)
+}
+
+func (a *app) applySavedPreferences(before, next library.Preferences) {
+	root := a.rootApp()
+	root.applyLocalPreferences(before, next)
+	for _, child := range root.extraWindows {
+		if !child.closing {
+			child.applyLocalPreferences(before, next)
+		}
+	}
+}
+
+func (a *app) applyLocalPreferences(before, next library.Preferences) {
+	if a.parent == nil && before.NotifyEnabled != next.NotifyEnabled {
+		a.notificationKnown = nil
+		a.armNotifications()
+		if next.NotifyEnabled {
+			a.refreshFavoriteRooms(true, true)
+		}
+	}
+	if before.AudioOnly != next.AudioOnly && !a.audioModeChanging {
+		a.stopRecording()
+		mode := "auto"
+		if next.AudioOnly {
+			mode = "no"
+			a.clearFlyingChat()
+		}
+		a.command("set", "vid", mode)
+	}
 	if a.preferencesTimer != nil {
 		a.preferencesTimer.Stop()
 		a.preferencesTimer = nil

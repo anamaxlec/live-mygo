@@ -37,25 +37,37 @@ type Player struct {
 	lastErr  string
 	renderer *renderer
 	barrage  barrageState
+	vt       vtBackend
 }
 type Stats struct {
-	Position   float64 `json:"position_seconds"`
-	Width      int     `json:"width"`
-	Height     int     `json:"height"`
-	FPS        float64 `json:"fps"`
-	Hardware   string  `json:"hardware_decoder"`
-	VideoCodec string  `json:"video_codec"`
-	AudioCodec string  `json:"audio_codec"`
-	AVSync     float64 `json:"av_sync_seconds"`
-	Dropped    int     `json:"dropped_frames"`
-	Visible    bool    `json:"video_surface_visible"`
-	Paused     bool    `json:"paused"`
-	Muted      bool    `json:"muted"`
-	Idle       bool    `json:"idle"`
-	Error      string  `json:"error,omitempty"`
+	Position      float64 `json:"position_seconds"`
+	Width         int     `json:"width"`
+	Height        int     `json:"height"`
+	FPS           float64 `json:"fps"`
+	Hardware      string  `json:"hardware_decoder"`
+	VideoCodec    string  `json:"video_codec"`
+	AudioCodec    string  `json:"audio_codec"`
+	AVSync        float64 `json:"av_sync_seconds"`
+	Dropped       int     `json:"dropped_frames"`
+	DecodedFrames uint64  `json:"decoded_frames,omitempty"`
+	Visible       bool    `json:"video_surface_visible"`
+	Paused        bool    `json:"paused"`
+	Muted         bool    `json:"muted"`
+	Idle          bool    `json:"idle"`
+	Error         string  `json:"error,omitempty"`
 }
 
-func New(surface *Surface) (*Player, error) {
+func New(surface VideoSurface) (*Player, error) {
+	if surface == nil {
+		return newMPVPlayer(nil)
+	}
+	if gl, ok := surface.(*Surface); ok {
+		return newMPVPlayer(gl)
+	}
+	return newVTPlayer(surface)
+}
+
+func newMPVPlayer(surface *Surface) (*Player, error) {
 	lib, err := loadLibrary()
 	if err != nil {
 		return nil, err
@@ -122,6 +134,9 @@ func New(surface *Surface) (*Player, error) {
 }
 
 func (p *Player) Load(target string, headers map[string]string) error {
+	if p.vt != nil {
+		return p.vt.Load(target, headers)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle == 0 {
@@ -158,6 +173,9 @@ func headerFields(headers map[string]string) string {
 }
 
 func (p *Player) Command(args ...string) error {
+	if p.vt != nil {
+		return p.vt.Command(args...)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle == 0 {
@@ -185,6 +203,9 @@ func (p *Player) command(args ...string) error {
 }
 
 func (p *Player) Stats() Stats {
+	if p.vt != nil {
+		return p.vt.Stats()
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle == 0 {
@@ -235,6 +256,10 @@ func (p *Player) Stats() Stats {
 }
 
 func (p *Player) Close() {
+	if p.vt != nil {
+		p.vt.Close()
+		return
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle != 0 {

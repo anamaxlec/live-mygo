@@ -32,8 +32,8 @@ func animatedPopover(c *ui.Context, anchor ui.Element, open *bool, above bool, c
 			origin, offset = 1, 5
 		}
 		panel.TransformOrigin(1, origin).Transition(ui.ElementTransition{
-			Size: true, Duration: 160 * time.Millisecond, Ease: ui.EaseOut,
-			Enter: &ui.Motion{Y: offset, Scale: .985}, Exit: &ui.Motion{Y: offset, Scale: .985},
+			Size: true, Duration: 180 * time.Millisecond, Ease: ui.CubicBezier(.2, .9, .25, 1.04),
+			Enter: &ui.Motion{Y: offset, Scale: .96, Rotate: -.7}, Exit: &ui.Motion{Y: offset, Scale: .985},
 		})
 	})
 }
@@ -86,7 +86,7 @@ func iconButton(c *ui.Context, icon *ui.SVG, label string, active ...bool) ui.El
 	if icon == iconHeartFilled {
 		ink = p.accent
 	}
-	b.Children(func() { ui.Icon(c, icon).Size(17, 17).TextColor(ink) })
+	b.Children(func() { playfulIcon(c, b, icon, ink) })
 	return b
 }
 

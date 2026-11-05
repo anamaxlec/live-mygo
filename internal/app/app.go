@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -38,7 +39,7 @@ type app struct {
 	chatDragWidth   float32
 
 	win                                    *mygo.Window
-	surface                                *player.Surface
+	surface                                player.VideoSurface
 	player                                 *player.Player
 	videoBitmap                            *ui.Bitmap
 	videoPix                               []byte
@@ -135,6 +136,29 @@ type app struct {
 	preferencesDeadline                    time.Time
 	reconnectTimer                         *time.Timer
 	reconnectAttempts                      int
+	reconnectSources                       []string
+	recentFaults                           []diagnosticFault
+	diagnosticsExporting                   bool
+	updates                                releaseCheckState
+	chatFailureExpanded                    bool
+	favoriteEditor                         favoriteEditorState
+	favoriteGroup                          string
+	backupBusy                             bool
+	audioModeChanging                      bool
+	notificationTimer                      *time.Timer
+	notificationKnown                      map[string]bool
+	notificationLast                       time.Time
+	mediaCommandsOff                       func()
+	parent                                 *app
+	extraWindows                           []*app
+	mediaOwner                             *app
+	playerDone                             chan struct{}
+	captureBusy                            bool
+	recordingPath, lastCapturePath         string
+	recordingUntil                         time.Time
+	recordingTimer                         *time.Timer
+	chatClearRun                           uint64
+	chatClearActive                        bool
 }
 
 type systemSecrets struct{}
@@ -151,7 +175,7 @@ func (systemSecrets) Set(k string, b []byte) error {
 }
 
 func Run(version string) {
-	appVersion = version
+	appVersion = strings.TrimSpace(version)
 	var o options
 	flag.StringVar(&o.platform, "platform", "", "启动平台；留空使用启动页设置")
 	flag.StringVar(&o.room, "room", "", "启动时播放指定房间")
@@ -229,6 +253,7 @@ func (a *app) start() {
 	_ = mygo.App.Dock.SetIcon(appIconPNG)
 	a.win = mygo.NewWindow(mygo.WindowOptions{Title: "Live MyGo", Width: 1180, Height: 780, MinWidth: 1000, MinHeight: 580, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 58, TrafficLightPosition: &mygo.Point{X: 16, Y: 22}, Vibrancy: mygo.VibrancySidebar, BackgroundColor: "light-dark(#ffffff, #141416)", Content: ui.View(a.view)})
 	_ = a.win.SetIcon(appIconPNG)
+	a.registerMediaControls()
 	a.fitInitialWindow()
 	a.win.OnResize(a.windowResized)
 	a.win.OnFocus(func() {
@@ -250,10 +275,13 @@ func (a *app) start() {
 	})
 	a.win.OnLeaveFullScreen(func() { a.fitWindowToVideo(true) })
 	a.win.OnClose(func(e *mygo.CloseEvent) {
-		if a.closing || a.clean {
+		if a.clean {
 			return
 		}
 		e.PreventDefault()
+		if a.closing {
+			return
+		}
 		if a.companion {
 			// 小窗的关闭按钮只退出小窗，不应结束整个应用。
 			a.toggleCompanion()
@@ -261,7 +289,11 @@ func (a *app) start() {
 		}
 		a.quit()
 	})
-	s, err := player.NewSurface(a.win.NativeHandle())
+	backend := ""
+	if a.library != nil {
+		backend = a.library.Preferences.PlayerBackend
+	}
+	s, err := player.NewSurface(a.win.NativeHandle(), backend)
 	if err != nil {
 		a.status = err.Error()
 		a.toast = err.Error()
@@ -270,13 +302,15 @@ func (a *app) start() {
 	}
 	a.surface = s
 	s.SetFrameCallback(a.win.Invalidate)
+	a.playerDone = make(chan struct{})
 	go a.runPlayer(s)
 	a.refreshAccountStatus()
-	if a.opts.file == "" && a.opts.room == "" {
+	if a.opts.file == "" && a.opts.room == "" && a.sessionToResume() == nil {
 		a.loadCatalog(1)
 	}
 	a.loadCategories(a.platform())
 	a.refreshFavorites(false)
+	a.armNotifications()
 	if a.opts.duration > 0 {
 		go func() {
 			timer := time.NewTimer(a.opts.duration)
@@ -291,20 +325,32 @@ func (a *app) start() {
 }
 
 // libmpv 的同步 API 可能等待 macOS 主线程；所有调用都由此后台循环串行处理。
-func (a *app) runPlayer(surface *player.Surface) {
+func (a *app) runPlayer(surface player.VideoSurface) {
 	p, err := player.New(surface)
 	if err != nil {
-		a.win.Update(func() { a.status = err.Error(); a.toast = err.Error(); a.clean = true })
+		a.win.Update(func() { a.status = err.Error(); a.toast = err.Error(); a.surface.Close(); close(a.playerDone) })
 		return
 	}
 	a.win.Update(func() {
+		if a.closing {
+			return
+		}
 		a.player = p
 		a.command("set", "volume", strconv.FormatFloat(a.volume, 'f', 0, 64))
+		if a.parent != nil {
+			a.stats.Muted = true
+			a.command("set", "mute", "yes")
+		}
 		a.status = "播放器已就绪"
 		if a.opts.file != "" {
 			a.playFile(a.opts.file)
 		} else if a.opts.room != "" {
 			a.resolve(a.platform(), a.opts.room, -1)
+		} else if session := a.sessionToResume(); session != nil {
+			a.stats.Muted = true
+			a.command("set", "mute", "yes")
+			a.targetRoom = session.Room
+			a.resolve(session.Room.Platform, session.Room.ID, session.Quality, session.Source)
 		}
 	})
 	tick := time.NewTicker(time.Second)
@@ -314,7 +360,7 @@ func (a *app) runPlayer(surface *player.Surface) {
 		select {
 		case <-a.ctx.Done():
 			p.Close()
-			a.win.Update(func() { a.clean = true; mygo.App.Quit() })
+			a.win.Update(func() { a.surface.Close(); close(a.playerDone) })
 			return
 		case job := <-a.playerOps:
 			job(p)
@@ -374,6 +420,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 		a.toast = err.Error()
 		return
 	}
+	a.stopRecording()
 	if a.page != "player" && !keepBrowsing {
 		a.returnPage = a.page
 		a.focusMode = true
@@ -413,6 +460,9 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 	if a.library != nil {
 		preference = platforms.NormalizeQualityPreference(a.library.Preferences.DefaultQuality)
 	}
+	if a.parent != nil {
+		preference = platforms.QualityHigh
+	}
 	go func() {
 		s, err := a.client.Resolve(ctx, p, id, quality, route...)
 		if err == nil && quality < 0 {
@@ -430,6 +480,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 			if err != nil {
 				a.busy = false
 				a.status = err.Error()
+				a.recordFailure("room", err.Error())
 				if s != nil && s.Room.Platform == platforms.FLive {
 					a.stream = s
 					a.targetRoom, a.title = s.Room, s.Room.Title
@@ -465,9 +516,17 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 			if a.surface != nil {
 				a.renderedAtStart = a.surface.Metrics().RenderedFrames
 			}
+			audioOnly := a.audioOnly()
 			a.doPlayer(func(p *player.Player) error {
 				if ctx.Err() != nil {
 					return ctx.Err()
+				}
+				mode := "auto"
+				if audioOnly {
+					mode = "no"
+				}
+				if err := p.Command("set", "vid", mode); err != nil {
+					return err
 				}
 				return p.Load(s.URL, s.Headers)
 			}, func(err error) {
@@ -477,13 +536,16 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 				a.busy = false
 				if err != nil {
 					a.status = err.Error()
+					a.recordFailure("video", err.Error())
+					a.shown = false
+					a.scheduleReconnect()
 					return
 				}
 				if !keepBrowsing {
 					a.page = "player"
 				}
 				if a.library != nil {
-					if err := a.library.Watch(s.Room); err != nil {
+					if err := a.library.WatchSession(s.Room, s.QualityID, s.SourceID); err != nil {
 						log.Print("保存观看历史失败：", err)
 					}
 				}
@@ -501,7 +563,8 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 					a.toast = "所选清晰度暂不可用，已切换到" + actual
 				}
 				a.shown = true
-				a.stats = player.Stats{}
+				a.stats = player.Stats{Muted: a.stats.Muted}
+				a.publishMediaInfo()
 				a.revealControls()
 				a.playStarted = time.Now()
 				a.firstFrameMS = 0
@@ -511,7 +574,9 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 				if !keepBrowsing {
 					a.transportHandle.Focus()
 				}
-				a.startChat(false)
+				if a.parent == nil || !a.companion {
+					a.startChat(false)
+				}
 			})
 		})
 	}()
@@ -538,6 +603,7 @@ func (a *app) playFile(path string) {
 		a.title = "本地音视频验证"
 		a.page = "player"
 		a.shown = true
+		a.publishMediaInfo()
 		a.playStarted = time.Now()
 		a.status = "正在载入测试视频"
 	})
@@ -550,6 +616,7 @@ func (a *app) command(args ...string) {
 	})
 }
 func (a *app) stop() {
+	a.stopRecording()
 	a.generation++
 	if a.resolveCancel != nil {
 		a.resolveCancel()
@@ -567,6 +634,7 @@ func (a *app) stop() {
 	a.targetRoom = platforms.Room{}
 	a.title = "输入房间号或直播间链接"
 	a.status = "已停止"
+	a.updateSystemPlayback()
 }
 
 func (a *app) acceptStats(stats player.Stats) {
@@ -575,28 +643,48 @@ func (a *app) acceptStats(stats player.Stats) {
 			return
 		}
 		if a.surface != nil {
-			a.surface.Show(a.page == "player" && a.shown && !a.minimized)
+			a.surface.Show(a.page == "player" && a.shown && !a.minimized && !a.audioOnly())
 		}
+		wasPaused := a.stats.Paused
 		a.stats = stats
+		if wasPaused != stats.Paused {
+			a.updateSystemPlayback()
+		}
 		if a.opts.report != "" {
 			a.samples = append(a.samples, a.stats)
-		}
-		if a.stats.Error != "" {
-			a.status = a.stats.Error
-			a.shown = false
-			a.scheduleReconnect()
-			return
 		}
 		if a.busy {
 			return
 		}
-		if a.shown && a.stats.Idle && a.decodedMS > 0 {
-			a.status = "播放已结束"
+		if a.stats.Error != "" {
+			a.stopRecording()
+			if a.shown || a.status != a.stats.Error {
+				a.recordFailure("video", a.stats.Error)
+			}
+			a.status = a.stats.Error
 			a.shown = false
+			a.scheduleReconnect()
+			a.updateSystemPlayback()
+			return
+		}
+		if a.audioOnly() && a.shown && a.stats.Idle {
+			a.stopRecording()
+			a.status = "音频连接已结束"
+			a.shown = false
+			a.updateSystemPlayback()
+			a.recordFailure("audio", a.status)
 			a.scheduleReconnect()
 			return
 		}
-		if a.shown && a.stats.Position > 0 && a.stats.Width > 0 {
+		if a.shown && a.stats.Idle && a.decodedMS > 0 {
+			a.stopRecording()
+			a.status = "播放已结束"
+			a.shown = false
+			a.updateSystemPlayback()
+			a.scheduleReconnect()
+			return
+		}
+		if a.shown && a.stats.Position > 0 && (a.stats.Width > 0 || a.audioOnly() && a.stats.AudioCodec != "") {
 			if time.Since(a.playStarted) > 30*time.Second {
 				a.reconnectAttempts = 0
 			}
@@ -621,7 +709,24 @@ func (a *app) quit() {
 		return
 	}
 	a.closing = true
+	if a.recordingTimer != nil {
+		a.recordingTimer.Stop()
+		a.recordingTimer = nil
+	}
+	children := append([]*app(nil), a.extraWindows...)
+	for _, child := range children {
+		child.quit()
+	}
+	if a.mediaCommandsOff != nil {
+		a.mediaCommandsOff()
+		a.mediaCommandsOff = nil
+		mygo.NowPlaying.Clear()
+	}
 	a.cancelSleep()
+	if a.notificationTimer != nil {
+		a.notificationTimer.Stop()
+		a.notificationTimer = nil
+	}
 	if a.reconnectTimer != nil {
 		a.reconnectTimer.Stop()
 	}
@@ -645,10 +750,24 @@ func (a *app) quit() {
 	}
 	a.cancel()
 	a.writeReport()
-	if a.player == nil {
-		a.clean = true
-		mygo.App.Quit()
-	}
+	go func() {
+		if a.playerDone != nil {
+			<-a.playerDone
+		}
+		for _, child := range children {
+			if child.playerDone != nil {
+				<-child.playerDone
+			}
+		}
+		a.win.Update(func() {
+			a.clean = true
+			if a.parent != nil {
+				a.win.Close()
+			} else {
+				mygo.App.Quit()
+			}
+		})
+	}()
 }
 
 func (a *app) writeReport() {

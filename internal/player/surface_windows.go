@@ -50,7 +50,7 @@ type Surface struct {
 	buffers          int
 }
 
-func NewSurface(window uintptr) (*Surface, error) {
+func NewSurface(window uintptr, backend ...string) (*Surface, error) {
 	if window == 0 {
 		return nil, fmt.Errorf("无法创建 Windows 视频容器：窗口句柄无效")
 	}
@@ -230,3 +230,5 @@ func (s *Surface) Metrics() RenderMetrics {
 		Backend:         "libmpv-render-sw",
 	}
 }
+
+func (s *Surface) Close() {}

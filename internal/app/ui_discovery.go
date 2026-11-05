@@ -177,7 +177,7 @@ func (a *app) personalRoom(c *ui.Context, r platforms.Room, live bool) {
 	b.Children(func() {
 		ui.Box(c).Size(80, 50).Radius(7).Clip().Shrink(0).Children(func() { a.coverImage(c, r.Cover, 7); sourceBadge(c, r.Platform, true) })
 		ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-			ui.Text(c, roomLabel(r)).FontSize(12).FontWeight(600).TextColor(p.text).SingleLine()
+			ui.Text(c, a.displayRoomName(r)).FontSize(12).FontWeight(600).TextColor(p.text).SingleLine()
 			ui.Text(c, r.Title).FontSize(10.5).TextColor(p.muted).SingleLine()
 			if live {
 				ui.Row(c).Gap(5).Children(func() {
@@ -202,7 +202,7 @@ func (a *app) featuredRoom(c *ui.Context, r platforms.Room, width float32) {
 			ui.Box(c).Width(coverWidth).Height(height).Shrink(0).Clip().Children(func() { a.coverImage(c, r.Cover, 12, 0, 0, 12); sourceBadge(c, r.Platform, false) })
 			ui.Column(c).Grow(1).MinWidth(0).Padding(16, 20, 16, 0).Gap(10).Children(func() {
 				ui.Text(c, r.Title).FontSize(18).FontWeight(600).LineHeight(1.35).MaxLines(3).TextColor(p.text)
-				ui.Text(c, roomLabel(r)).FontSize(12).TextColor(p.muted).SingleLine()
+				ui.Text(c, a.displayRoomName(r)).FontSize(12).TextColor(p.muted).SingleLine()
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					ui.Icon(c, iconPlay).Size(12, 12).TextColor(p.accent)
 					ui.Text(c, "进入直播间").FontSize(11).FontWeight(500).TextColor(p.accent)

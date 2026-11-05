@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/platforms"
 	"strings"
+	"time"
 )
 
 type connectionStep struct{ title, detail, state string }
@@ -24,6 +25,9 @@ func (a *app) connectionOverlay(c *ui.Context, opacity float32) {
 func (a *app) connectionSteps() []connectionStep {
 	room := connectionStep{"解析房间", "正在获取房间信息", "active"}
 	video := connectionStep{"连接视频", "等待房间解析", "waiting"}
+	if a.audioOnly() {
+		video.title = "连接音频"
+	}
 	chat := connectionStep{"连接弹幕", "等待视频连接", "waiting"}
 	if a.targetRoom.Platform == platforms.FLive {
 		room.title = "解析频道"
@@ -34,7 +38,7 @@ func (a *app) connectionSteps() []connectionStep {
 		room.detail, room.state = "房间已确认", "done"
 		video.detail, video.state = "正在等待视频画面", "active"
 	}
-	if a.shown && (a.decodedMS > 0 || a.playStarted.IsZero()) {
+	if a.shown && (a.decodedMS > 0 || a.playStarted.IsZero() || a.audioOnly() && a.stats.AudioCodec != "") {
 		video.detail, video.state = "播放中", "done"
 		if a.stats.Paused {
 			video.detail = "已暂停"
@@ -64,6 +68,9 @@ func (a *app) connectionSteps() []connectionStep {
 }
 
 func (a *app) waitingForVideo() bool {
+	if a.audioOnly() {
+		return !a.shown || a.stats.AudioCodec == ""
+	}
 	return !a.shown || !a.playStarted.IsZero() && a.decodedMS == 0
 }
 
@@ -125,6 +132,10 @@ func connectionSummary(steps []connectionStep) (title, detail string, failed boo
 func (a *app) connectionStatus(c *ui.Context) {
 	p := colors(c.Theme())
 	steps := a.connectionSteps()
+	if a.shown && !a.waitingForVideo() && len(steps) > 2 && steps[2].state == "failed" {
+		a.compactChatFailure(c, steps[2])
+		return
+	}
 	title, detail, failed := connectionSummary(steps)
 	ui.Column(c.Key("room-connection")).FillWidth().Shrink(0).Padding(14).Gap(12).Label("直播间连接状态").Children(func() {
 		ui.Row(c).Gap(9).AlignItems(ui.Center).Children(func() {
@@ -144,6 +155,9 @@ func (a *app) connectionStatus(c *ui.Context) {
 		}
 		connectionRows(c, steps)
 		if !a.busy && !a.shown {
+			if a.reconnectAttempts >= 3 {
+				ui.Text(c, "自动恢复未成功，可以手动重试或切换播放内核。").FontSize(11).TextColor(p.muted).MaxLines(2)
+			}
 			ui.Row(c).FillWidth().Gap(8).Children(func() {
 				if a.targetRoom.ID != "" && ui.PrimaryButton(c, "重新连接").Label("重新连接").Grow(1).Basis(0).MinWidth(0).Padding(0).Height(30).Radius(7).FontSize(11.5).Clicked() {
 					a.reloadStream()
@@ -153,6 +167,12 @@ func (a *app) connectionStatus(c *ui.Context) {
 					a.backToBrowse()
 				}
 			})
+			if a.reconnectAttempts >= 3 && ui.Button(c, "播放设置").FillWidth().Height(30).FontSize(11.5).Clicked() {
+				a.settingsWindow(settingsPlayback)
+			}
+			if a.reconnectAttempts >= 3 && ui.Button(c, "导出诊断").FillWidth().Height(30).FontSize(11.5).Disabled(a.diagnosticsExporting).Clicked() {
+				a.exportDiagnostics()
+			}
 		} else if a.shown && a.chatRoomKey == roomKey(a.targetRoom) && len(steps) > 2 && steps[2].state == "failed" {
 			if ui.PrimaryButton(c, "重新连接弹幕").FillWidth().Height(30).FontSize(11.5).Clicked() {
 				a.startChat(true)
@@ -160,6 +180,42 @@ func (a *app) connectionStatus(c *ui.Context) {
 		}
 		if a.targetRoom.Platform == "douyu" && a.library != nil && !a.library.Preferences.DouyuLegacyTLS && strings.Contains(a.chatStatus, "加密连接失败") {
 			if ui.Button(c, "斗鱼连接兼容设置").FontSize(11).Height(28).Margin(6, 0, 0, 0).Clicked() {
+				a.settingsWindow(settingsPlayback)
+			}
+		}
+	})
+}
+
+func (a *app) compactChatFailure(c *ui.Context, step connectionStep) {
+	p := colors(c.Theme())
+	ui.Column(c.Key("compact-chat-failure")).FillWidth().Padding(10).Gap(7).Label("直播间连接状态").Children(func() {
+		b := ui.ButtonBase(c).FillWidth().Height(26).Gap(7).AlignItems(ui.Center).Label("展开弹幕连接详情")
+		b.Children(func() {
+			ui.Icon(c, iconChat).Size(14, 14).TextColor(p.muted)
+			ui.Text(c, "弹幕暂未连接").FontSize(12).FontWeight(500).TextColor(p.text).Grow(1)
+			angle := float32(0)
+			if a.chatFailureExpanded {
+				angle = 90
+			}
+			ui.Icon(c, iconChevron).Size(12, 12).TextColor(p.muted).Rotate(b.Animate("expand", angle, 140*time.Millisecond))
+		})
+		if b.Clicked() {
+			a.chatFailureExpanded = !a.chatFailureExpanded
+		}
+		ui.Box(c).Size(0, 0).Label(step.title + "：" + step.detail)
+		if a.chatFailureExpanded {
+			ui.Text(c, step.detail).FontSize(11).TextColor(p.muted).MaxLines(3).Transition(menuContentTransition)
+		}
+		ui.Row(c).FillWidth().Gap(7).Children(func() {
+			if ui.Button(c, "重新连接弹幕").Grow(1).Basis(0).Height(28).FontSize(11).Clicked() {
+				a.startChat(true)
+			}
+			if a.chatFailureExpanded && ui.Button(c, "导出诊断").Grow(1).Basis(0).Height(28).FontSize(11).Disabled(a.diagnosticsExporting).Clicked() {
+				a.exportDiagnostics()
+			}
+		})
+		if a.chatFailureExpanded && a.targetRoom.Platform == platforms.Douyu && a.library != nil && !a.library.Preferences.DouyuLegacyTLS && strings.Contains(a.chatStatus, "加密连接失败") {
+			if ui.Button(c, "斗鱼连接兼容设置").FillWidth().Height(28).FontSize(11).Clicked() {
 				a.settingsWindow(settingsPlayback)
 			}
 		}

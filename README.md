@@ -22,13 +22,13 @@
 ## 看起来是什么样？
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Live MyGo 首页界面" width="840">
+  <img src="docs/screenshots/home-2026-11.webp" alt="Live MyGo 首页界面" width="840">
   <br>
-  <sub>首页 · 关注的直播与推荐内容</sub>
+  <sub>首页 · 最近观看与直播推荐</sub>
 </p>
 
 <p align="center">
-  <img src="docs/images/watch-room.png" alt="Live MyGo 直播间界面" width="840">
+  <img src="docs/screenshots/watch-2026-11.webp" alt="Live MyGo 直播间界面" width="840">
   <br>
   <sub>直播间 · 播放器与弹幕并排呈现</sub>
 </p>

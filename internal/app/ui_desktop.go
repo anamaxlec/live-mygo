@@ -30,6 +30,7 @@ func (a *app) view(c *ui.Context) {
 		a.pendingPage = ""
 		a.openPage(page)
 	}
+	a.builtPage = a.page
 	if a.win != nil && (!a.iconSet || a.iconDark != c.Theme().Dark) {
 		a.iconSet = true
 		a.iconDark = c.Theme().Dark
@@ -152,7 +153,13 @@ func (a *app) view(c *ui.Context) {
 				if a.surface != nil {
 					a.surface.Show(false)
 				}
-				ui.Box(c.Key("browse-page:" + a.page)).Fill().Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: ui.EaseOut, Colors: true, Enter: &ui.Motion{Opacity: .25}}).Children(func() { a.browseView(c) })
+				enter := &ui.Motion{Opacity: .25}
+				if a.skipBrowseEnter {
+					// 从播放页返回时视频已消失，再淡入整页只剩一片白底。
+					enter = nil
+					a.skipBrowseEnter = false
+				}
+				ui.Box(c.Key("browse-page:" + a.page)).Fill().Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: ui.EaseOut, Colors: true, Enter: enter}).Children(func() { a.browseView(c) })
 			}
 		})
 	})
@@ -164,6 +171,7 @@ func (a *app) view(c *ui.Context) {
 			a.focusMode = !a.focusMode
 		}
 	}
+	a.returnShrinkView(c)
 }
 
 func (a *app) sidebar(c *ui.Context) {
@@ -290,7 +298,15 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 	if a.stream != nil {
 		r = a.stream.Room
 	}
-	ui.Column(c.Key("now-playing-card")).Padding(10).Gap(9).Radius(11).Background(p.hover).Border(1, p.line).Children(func() {
+	card := ui.Column(c.Key("now-playing-card")).Padding(10).Gap(9).Radius(11).Background(p.hover).Border(1, p.line)
+	if bounds := card.Bounds(); bounds.W > 1 && bounds.H > 1 {
+		// 返回动画收束到上一帧卡片的实际位置，窗口高度变化时只重算离底距离。
+		a.nowCardBounds = bounds
+		if _, height := c.Size(); height > bounds.Y+bounds.H {
+			a.nowCardBottom = height - bounds.Y - bounds.H
+		}
+	}
+	card.Children(func() {
 		b := ui.ButtonBase(c.Key("now-playing")).FillWidth().Gap(9).AlignItems(ui.Center).Radius(7).Label("返回正在播放的直播间").Tooltip(r.Title)
 		b.Children(func() {
 			a.channelCardIdentity(c, r)
@@ -404,6 +420,9 @@ func (a *app) backToBrowse() {
 		a.normalMinimum()
 	}
 	a.leavePlayer()
+	a.skipBrowseEnter = true
+	a.returnShrink = true
+	a.returnShrinkAt = time.Time{}
 	page := a.returnPage
 	if page == "" || page == "player" {
 		page = string(a.platform())
@@ -422,6 +441,80 @@ func (a *app) backToBrowse() {
 		a.loadCatalog(1)
 	}
 	a.refreshFavorites(false)
+}
+
+// returnShrinkView 把整个播放页当成一张纸收进左下角的正在播放卡片。
+// 快照层用离开时的布局重建播放页，因此返回的第一帧和播放页完全一致；
+// 浏览页已经在下面铺好，随快照缩小逐渐露出来。
+func (a *app) returnShrinkView(c *ui.Context) {
+	if !a.returnShrink {
+		return
+	}
+	if a.page == "player" || a.audioOnly() || (a.stream == nil && a.targetRoom.ID == "") {
+		a.returnShrink = false
+		a.returnShrinkAt = time.Time{}
+		return
+	}
+	if a.returnShrinkAt.IsZero() {
+		// 点击返回的那一帧还是播放页，等下一帧浏览页真正建好再开始。
+		if a.builtPage == "player" {
+			c.After(16 * time.Millisecond)
+			return
+		}
+		a.returnShrinkAt = c.Now()
+	}
+	reduced := c.Preferences().ReduceMotion
+	duration := 460 * time.Millisecond
+	if reduced {
+		duration = 180 * time.Millisecond
+	}
+	elapsed := c.Now().Sub(a.returnShrinkAt)
+	if elapsed < 0 || elapsed >= duration {
+		a.returnShrink = false
+		a.returnShrinkAt = time.Time{}
+		return
+	}
+	t := float32(elapsed) / float32(duration)
+	width, height := c.Size()
+	end := a.nowCardBounds
+	if end.W < 8 || end.H < 8 {
+		end = ui.Rect{X: 14, Y: height - 195, W: 204, H: 95}
+	} else {
+		end.Y = height - a.nowCardBottom - end.H
+	}
+	scale := min(1, max(.02, end.W/width))
+	endX := end.X + end.W/2 - width*scale/2
+	endY := end.Y + end.H/2 - height*scale/2
+	progress := float32(0)
+	if !reduced {
+		progress = ui.CubicBezier(.36, .04, .16, 1)(min(1, max(0, (t-.02)/.86)))
+	}
+	sheetScale := 1 + (scale-1)*progress
+	opacity := float32(1)
+	if reduced {
+		opacity = 1 - ui.EaseOut(t)
+	} else if t > .56 {
+		opacity = 1 - ui.EaseInOut(min(1, (t-.56)/.38))
+	}
+	if opacity <= .004 {
+		c.After(16 * time.Millisecond)
+		return
+	}
+	a.snap, a.snapNav, a.snapChat = true, a.playerNavWidth, a.playerChatWidth
+	p := colors(c.Theme())
+	ui.Overlay(c, func() {
+		sheet := ui.Box(c).Absolute().Left(endX*progress).Top(endY*progress).Width(width).Height(height).
+			Background(p.bg).
+			TransformOrigin(0, 0).Scale(sheetScale, sheetScale).Opacity(opacity)
+		sheet.Children(func() {
+			a.contentView(c)
+			ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
+		})
+		// 收缩期间整层挡住指针，不让快照里的按钮或画面接到点击。
+		ui.Box(c).Absolute().Fill().Role(ui.RoleNone)
+	})
+	a.snap = false
+	c.After(16 * time.Millisecond)
 }
 
 func (a *app) submitSearch() {

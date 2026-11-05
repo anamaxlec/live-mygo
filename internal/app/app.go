@@ -117,6 +117,15 @@ type app struct {
 	navWidth                               float32
 	navMeasured                            bool
 	navReturn                              uint64
+	skipBrowseEnter                        bool
+	builtPage                              string
+	returnShrink                           bool
+	returnShrinkAt                         time.Time
+	playerNavWidth, playerChatWidth        float32
+	snap                                   bool
+	snapNav, snapChat                      float32
+	nowCardBounds                          ui.Rect
+	nowCardBottom                          float32
 	qualityOpen, sourceOpen                bool
 	danmakuOpen, volumeOpen                bool
 	chatSettingsOpen                       bool

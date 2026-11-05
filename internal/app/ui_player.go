@@ -44,7 +44,7 @@ func watchGeometry(width, height, header, sidebar, chat float32) watchLayout {
 }
 
 func (a *app) contentView(c *ui.Context) {
-	full := a.win != nil && a.win.IsFullScreen()
+	full := !a.snap && a.win != nil && a.win.IsFullScreen()
 	root := ui.Column(c.Key("watch-layout")).Fill()
 	target := float32(0)
 	if a.chatVisible() {
@@ -58,7 +58,12 @@ func (a *app) contentView(c *ui.Context) {
 	if a.chatResizing {
 		duration = time.Nanosecond
 	}
-	chatWidth := root.AnimateTo("chat-width", target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
+	chatWidth := target
+	if a.snap {
+		chatWidth = a.snapChat
+	} else {
+		chatWidth = root.AnimateTo("chat-width", target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
+	}
 	header, sidebar := float32(0), float32(0)
 	if !full {
 		header = watchHeaderHeight
@@ -68,6 +73,13 @@ func (a *app) contentView(c *ui.Context) {
 	}
 	if !full && a.navMeasured {
 		sidebar = a.navWidth
+	}
+	if a.snap {
+		sidebar = a.snapNav
+	}
+	if !a.snap && a.page == "player" {
+		// 返回动画的播放页快照沿用离开时的布局，避免侧栏和聊天栏重新滑入。
+		a.playerNavWidth, a.playerChatWidth = sidebar, chatWidth
 	}
 	width, height := c.Size()
 	layout := watchGeometry(width, height, header, sidebar, chatWidth)
@@ -141,6 +153,10 @@ func paintWatchFrame(p *ui.Painter, r ui.Rect, palette palette, radius float32) 
 }
 
 func (a *app) watchChrome(c *ui.Context) ui.Color {
+	if a.snap {
+		// 快照层下面压着浏览页，不能再透出窗口材质当底色。
+		return colors(c.Theme()).sidebar
+	}
 	if c.Vibrancy() && !a.customAppearance() {
 		// 透出窗口已经启用的 NSVisualEffectView，而不是用半透明灰色模拟磨砂。
 		return ui.Transparent
@@ -156,6 +172,9 @@ func (a *app) watchHeader(c *ui.Context) {
 	}
 	if a.navMeasured {
 		sidebar = a.navWidth
+	}
+	if a.snap {
+		sidebar = a.snapNav
 	}
 	const navigationWidth, titleGap float32 = 65, 12
 	titleEdge := sidebar + watchFrameInset + watchFrameBorder

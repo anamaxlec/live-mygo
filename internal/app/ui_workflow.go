@@ -196,6 +196,7 @@ func (a *app) closePlayback() {
 	a.stop()
 	if a.page == "player" {
 		a.page = "home"
+		a.skipBrowseEnter = true
 		a.focusMode = false
 		a.navReturn++
 		fresh := a.restoreHomeCatalog()

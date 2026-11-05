@@ -219,8 +219,11 @@ func (c *Client) douyinCatalog(ctx context.Context, page int) (Catalog, error) {
 		if id == "" {
 			id = item.Room.Owner.WebID
 		}
-		if id != "" && item.Room.Status == 2 {
-			out.Rooms = append(out.Rooms, item.Room.room(id))
+		if id != "" && (item.Room.Status == 0 || item.Room.Status == 2) {
+			// 推荐接口的在播房间 status 可能为 0，房间页才返回 2。
+			r := item.Room.room(id)
+			r.Live = true
+			out.Rooms = append(out.Rooms, r)
 		}
 	}
 	return out, nil

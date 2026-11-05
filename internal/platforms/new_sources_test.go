@@ -43,7 +43,7 @@ func TestRecommendationFeedsExcludeOfflineRooms(t *testing.T) {
 				case "ttwid.bytedance.com":
 					header.Set("Set-Cookie", "ttwid=anonymous-test; Domain=.douyin.com; Path=/; Secure")
 				case "live.douyin.com":
-					body = `{"data":[{"web_rid":"1","data":{"title":"正在直播","status":2}},{"web_rid":"2","data":{"title":"已下播","status":4}}]}`
+					body = `{"data":[{"web_rid":"1","data":{"title":"正在直播","status":0}},{"web_rid":"2","data":{"title":"已下播","status":4}}]}`
 				case "www.qie.tv":
 					body = `<script id="__NEXT_DATA__">{"props":{"initialState":{"homeInfo":{"data":{"live_room":[{"room_id":"1","room_name":"正在直播","show_status":"1"},{"room_id":"2","room_name":"已下播","show_status":"2","is_live":"1"}]}}}}}</script>`
 				default:

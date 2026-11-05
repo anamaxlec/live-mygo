@@ -11,13 +11,13 @@ SetCompressorDictSize 64
 !include "x64.nsh"
 
 !define APP_NAME "Live MyGo"
-!define APP_VERSION "0.4.1-beta.3"
+!define APP_VERSION "0.4.2-beta.2"
 !define APP_EXE "LiveMyGo.exe"
 !define PAYLOAD "build\windows-amd64"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\LiveMyGo"
 
 Name "${APP_NAME}"
-OutFile "build\releases\LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe"
+OutFile "build\releases\LiveMyGo-v0.4.2-beta.2-windows-amd64-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\LiveMyGo"
 InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation"
 RequestExecutionLevel user
@@ -25,7 +25,7 @@ Icon "${PAYLOAD}\AppIcon.ico"
 UninstallIcon "${PAYLOAD}\AppIcon.ico"
 BrandingText "${APP_NAME} ${APP_VERSION}"
 
-VIProductVersion "0.4.1.3"
+VIProductVersion "0.4.2.2"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey "FileVersion" "${APP_VERSION}"
@@ -123,7 +123,26 @@ Section "主程序" SEC_MAIN
   SectionIn RO
   Call CloseRunningApp
   SetOutPath "$INSTDIR"
-  File /r "${PAYLOAD}\*.*"
+  File "${PAYLOAD}\LiveMyGo.exe"
+  File "${PAYLOAD}\libmpv-2.dll"
+  File "${PAYLOAD}\cacert.pem"
+  File "${PAYLOAD}\AppIcon.ico"
+  File "${PAYLOAD}\LICENSE"
+  File "${PAYLOAD}\THIRD_PARTY.md"
+  File "${PAYLOAD}\README-Windows.md"
+  File "${PAYLOAD}\PLAYER-SOURCE.txt"
+  SetOutPath "$INSTDIR\licenses"
+  File /r "${PAYLOAD}\licenses\*.*"
+  SetOutPath "$INSTDIR\docs"
+  File "${PAYLOAD}\docs\DESIGN.md"
+  File "${PAYLOAD}\docs\MYGO.md"
+  SetOutPath "$INSTDIR\docs\windows"
+  File /r "${PAYLOAD}\docs\windows\*.*"
+  SetOutPath "$INSTDIR\docs\mygo"
+  File /r "${PAYLOAD}\docs\mygo\*.*"
+  SetOutPath "$INSTDIR\docs\macos"
+  File /r "${PAYLOAD}\docs\macos\*.*"
+  SetOutPath "$INSTDIR"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 

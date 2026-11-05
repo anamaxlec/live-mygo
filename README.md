@@ -1,54 +1,82 @@
-<img src="assets/app-icon.svg" alt="Live MyGo 图标" width="120">
+<div align="center">
+
+<img src="assets/app-icon.png" alt="Live MyGo 图标" width="112">
 
 # Live MyGo
 
-**基于 MyGo 的原生播放器练手项目，用于学习原生 UI、视频播放和弹幕绘制。**
+**在桌面上，好好看直播。**
 
-[macOS 0.4.2-beta.1](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.1/LiveMyGo-v0.4.2-beta.1-macos-arm64.dmg) · [Windows 安装包 0.4.1-beta.3](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe) · [Windows 便携版](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64.zip) · [版本页面](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.2-beta.1)
+基于 [MyGo](https://github.com/egoist/mygo) 构建的原生多平台直播播放器。  
+为 macOS 与 Windows 打造，把直播、弹幕和关注留在一个舒服的窗口里。
 
-## 界面与功能
+[![Release](https://img.shields.io/github/v/release/anamaxlec/live-mygo?include_prereleases&label=Beta)](https://github.com/anamaxlec/live-mygo/releases)
+[![Stars](https://img.shields.io/github/stars/anamaxlec/live-mygo?style=flat&label=Stars)](https://github.com/anamaxlec/live-mygo/stargazers)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](LICENSE)
 
-界面使用系统磨砂材质，支持浅色、深色和跟随系统外观。直播画面内置悬浮控制条，右侧默认显示气泡弹幕。
+**[下载 macOS](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.1/LiveMyGo-v0.4.2-beta.1-macos-arm64.dmg)** · **[下载 Windows](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.1-beta.3)** · [所有版本](https://github.com/anamaxlec/live-mygo/releases) · [反馈问题](https://github.com/anamaxlec/live-mygo/issues)
 
-- 浏览推荐和分区，搜索主播，通过房间号或官方链接进入直播间。
-- 切换清晰度、播放线路和画面比例，观看时继续浏览其他直播间。
-- 调整画面弹幕和弹幕列表样式，筛选消息、屏蔽用户或关键词。
-- 管理关注、分组、置顶和别名，刷新开播状态，订阅开播提醒。
-- 使用官方登录窗口或导入 Cookie，账号信息加密保存在本机。
-- 跨来源快捷搜索，优先查找本机关注和历史。
-- 小窗置顶、只听声音、定时停止和多窗口观看。
-- 导入导出关注与偏好，可选静音恢复上次直播。
-- 保存当前画面或约 30 秒片段，导出播放诊断，检查应用更新。
+</div>
 
-macOS 提供 mpv 与原生硬解两个内核。当前版本进展及验证范围见 [产品进展](docs/PRODUCT-NEXT.md)。Windows 下载包仍为 0.4.1-beta.3，新功能的实机复验清单见 [Windows 新功能交接](docs/windows/2026-11-05-HANDOFF.md)。
+---
 
-## 安装
+## 看起来是什么样？
 
-测试版适用于 **macOS 27.0 及以上的 Apple Silicon Mac**。下载并打开 DMG，将 `Live MyGo` 拖入 `Applications` 文件夹。
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Live MyGo 首页界面" width="840">
+  <br>
+  <sub>首页 · 关注的直播与推荐内容</sub>
+</p>
 
-应用使用 ad hoc 签名，尚未经过 Apple 公证。首次打开如被 macOS 阻止，请在系统设置中允许打开。
+<p align="center">
+  <img src="docs/images/watch-room.png" alt="Live MyGo 直播间界面" width="840">
+  <br>
+  <sub>直播间 · 播放器与弹幕并排呈现</sub>
+</p>
 
-Windows x64 测试版提供当前用户安装包或便携 ZIP，安装包无需管理员权限；便携包解压后运行 `LiveMyGo.exe`。已在 Windows 11 x64 实机验证界面、播放和弹幕：视频通过 libmpv Render API 的软件输出合成到 MyGo 位图，本地测试视频和各平台真实直播均有画面；对齐与打包细节见 [Windows 交接文件夹](docs/windows/README.md)，macOS 更新记录见 [macOS 更新与验证](docs/macos/README.md)。
+支持浅色、深色与跟随系统外观。系统磨砂材质、悬浮播放控件和适度的交互动效，让它更像一款真正属于桌面的应用。
 
-## 快捷键
+## 你可以用它做什么？
 
-- `⌘L` / `⌘K`：快捷搜索直播；`⌘F`：搜索当前页面或观看时快捷搜索
-- `Space`：暂停或继续；`M`：静音；`D`：切换画面弹幕
-- `K` / `Tab`：唤出播放器控制条；`⌘R`：刷新或重新连接
-- `⌃⌘F`：全屏；`Esc`：返回或退出全屏
-- `⌘1`–`⌘4`：切换页面；`⌘,`：打开设置
+- **一个窗口，找到想看的直播。** 浏览推荐与分区、跨平台搜索主播；支持房间号和官方直播链接直达。当前接入 **哔哩哔哩、斗鱼、虎牙、抖音、企鹅体育**。
+- **把画面调成喜欢的样子。** 切换清晰度、播放线路与画面比例；macOS 可选 mpv 或原生硬解内核，断流时尝试自动恢复。
+- **弹幕也可以很讲究。** 画面弹幕与右侧聊天列表独立设置，支持气泡 / 紧凑样式、字号与透明度调整，以及用户、关键词和重复内容过滤。
+- **关注的主播，不必挨个找。** 收藏、分组、置顶、设置别名，按需刷新开播状态；可以为指定关注开启开播提醒。
+- **为桌面观看准备的小功能。** 置顶小窗、只听声音、定时停止，最多同时打开三个直播窗口；还能在看直播时继续浏览其他房间。
+- **把偏好留在本机。** 导入导出关注与设置、可选静音恢复上次直播；账号信息加密存储在本地。支持保存当前画面，以及测试中的约 30 秒直播片段功能。
 
-## 项目结构
+> Live MyGo 仍处于 **Beta 测试阶段**。不同平台提供的画质、线路与弹幕能力可能不同，部分功能仍在验证中。具体进展见 [产品进展](docs/PRODUCT-NEXT.md)。
 
-- `cmd/`：图标生成、应用打包与平台验证工具。
-- `internal/app/`：桌面应用的界面与生命周期代码。
-- `internal/accounts/`、`internal/library/`、`internal/platforms/`、`internal/player/`：账号、本地数据、直播平台和播放器模块。
-- `assets/`：应用图标、界面图标和平台标识。
-- `docs/`：设计、功能、版本记录及 MyGo 技术参考。
+## 下载与安装
 
-## 构建
+| 系统 | 当前测试版 | 下载 |
+| --- | --- | --- |
+| **macOS** · Apple Silicon，macOS 27.0+ | `0.4.2-beta.1` | [DMG 安装包](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.1/LiveMyGo-v0.4.2-beta.1-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.1/LiveMyGo-v0.4.2-beta.1-macos-arm64.zip) |
+| **Windows** · x64，已在 Windows 11 验证 | `0.4.1-beta.3` | [安装程序](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe) · [便携 ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64.zip) |
 
-需要 Go 1.27.3、Homebrew 的 `mpv`、`ffmpeg` 和 Xcode Command Line Tools。
+**macOS：** 打开 DMG，将 Live MyGo 拖入「应用程序」。目前采用 ad hoc 签名，尚未进行 Apple 公证；如果首次启动受到系统阻止，可前往「系统设置 → 隐私与安全性」手动允许打开。
+
+**Windows：** 运行安装程序即可安装到当前用户环境，无需管理员权限；便携版解压后运行 `LiveMyGo.exe`。
+
+> Windows 的公开安装包暂时落后于 macOS 版本，部分最近加入的功能尚未包含在 Windows 安装包中。请以各平台 Release 说明及 [Windows 验证记录](docs/windows/README.md) 为准。
+
+## 一些顺手的快捷键
+
+以下以 macOS 为例，Windows 使用对应平台快捷键。
+
+| 操作 | 快捷键 |
+| --- | --- |
+| 快捷搜索 | `⌘ L` / `⌘ K` |
+| 暂停 / 继续 | `Space` |
+| 静音 / 取消静音 | `M` |
+| 显示 / 隐藏画面弹幕 | `D` |
+| 唤出播放控制条 | `K` / `Tab` |
+| 刷新 / 重新连接 | `⌘ R` |
+| 全屏 | `⌃ ⌘ F` |
+| 设置 | `⌘ ,` |
+
+## 从源码构建
+
+项目使用 **Go + MyGo + libmpv**。macOS 构建环境需要 Go 1.27.3、Homebrew 安装的 `mpv` / `ffmpeg`，以及 Xcode Command Line Tools。
 
 ```sh
 go test ./...
@@ -56,28 +84,14 @@ sh scripts/build.sh
 open build/LiveMyGo.app
 ```
 
-打包 DMG 需要 `dmgbuild==1.6.7`：
+打包 DMG、Windows 构建与平台验证说明可查阅 [macOS 文档](docs/macos/README.md) 和 [Windows 文档](docs/windows/README.md)。项目的界面约定与技术记录分别见 [设计准则](docs/DESIGN.md) 和 [MyGo 技术参考](docs/MYGO.md)。
 
-```sh
-python3 -m venv .local/packaging
-.local/packaging/bin/pip install dmgbuild==1.6.7
-DMGBUILD=.local/packaging/bin/dmgbuild sh scripts/package.sh
-```
+## 关于这个项目
 
-## 待做事项
+Live MyGo 起初是一个探索 **MyGo 原生 UI、视频播放和弹幕绘制** 的个人项目。现在它仍在持续完善：除了功能可用，也希望把窗口、动效、键盘操作和观看时的安静感做好。
 
-- [ ] 完成 Apple 签名与公证，适配更低版本的 macOS。
-- [ ] 使用真实账号验证登录、Cookie 保存及不同账号的画质权限。
-- [ ] 验证长时间播放和高峰弹幕下的稳定性，测量实际能耗。
-- [x] 完成 Windows 实机播放、高 DPI 与视频叠层验证；账号登录仍待验证。
-- [ ] 在 Windows 实机复验本轮新增的搜索、数据管理、多窗口和保存功能。
-- [ ] 完善短片段起始关键帧、系统画中画和多画面布局。
-- [ ] 探索应用内发送弹幕等平台互动。
+它是非官方第三方客户端，与上述直播平台没有隶属或授权关系。
 
-## 许可证与致谢
+项目以 [GNU AGPL v3](LICENSE) 开源；第三方依赖与许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-源码遵循 [GNU Affero General Public License v3](LICENSE)，第三方组件及许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
-
-项目使用 [MyGo](https://github.com/egoist/mygo) 和 [libmpv](https://github.com/mpv-player/mpv)，功能与界面参考 [Pure Live](https://github.com/liuchuancong/pure_live)、[Simple Live](https://github.com/xuanxuan123xuan/dart_simple_live)、[MyGo CloudMusic](https://github.com/egoist/mygo-cloudmusic) 和 [IINA](https://iina.io/)。
-
-框架资料见 [MyGo 技术参考](docs/MYGO.md)，界面约定见 [设计准则](docs/DESIGN.md)。
+感谢 [MyGo](https://github.com/egoist/mygo)、[mpv](https://github.com/mpv-player/mpv)。项目在功能与体验上也参考了 [纯粹直播（Pure Live）](https://github.com/liuchuancong/pure_live)、[Simple Live](https://github.com/xuanxuan123xuan/dart_simple_live)、[MyGo CloudMusic](https://github.com/egoist/mygo-cloudmusic) 和 [IINA](https://iina.io/)。

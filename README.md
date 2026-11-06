@@ -50,7 +50,7 @@
 
 | 系统 | 当前测试版 | 下载 |
 | --- | --- | --- |
-| **macOS** · Apple Silicon，macOS 27.0+ | `0.4.2-beta.2` | [DMG 安装包](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.2/LiveMyGo-v0.4.2-beta.2-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.2/LiveMyGo-v0.4.2-beta.2-macos-arm64.zip) |
+| **macOS** · Apple Silicon，macOS 26.0+ | `0.4.2-beta.2` | [DMG 安装包](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.2/LiveMyGo-v0.4.2-beta.2-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.2/LiveMyGo-v0.4.2-beta.2-macos-arm64.zip) |
 | **Windows** · x64，已在 Windows 11 验证 | `0.4.1-beta.3` | [安装程序](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe) · [便携 ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.1-beta.3/LiveMyGo-v0.4.1-beta.3-windows-amd64.zip) |
 
 **macOS：** 打开 DMG，将 Live MyGo 拖入「应用程序」。目前采用 ad hoc 签名，尚未进行 Apple 公证；如果首次启动受到系统阻止，可前往「系统设置 → 隐私与安全性」手动允许打开。

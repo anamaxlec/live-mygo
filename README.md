@@ -13,7 +13,7 @@
 [![Stars](https://img.shields.io/github/stars/anamaxlec/live-mygo?style=flat&label=Stars)](https://github.com/anamaxlec/live-mygo/stargazers)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](LICENSE)
 
-**[下载 macOS](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.3/LiveMyGo-v0.4.2-beta.3-macos-arm64.dmg)** · **[下载 Windows](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.3/LiveMyGo-v0.4.2-beta.3-windows-amd64-setup.exe)** · [所有版本](https://github.com/anamaxlec/live-mygo/releases) · [反馈问题](https://github.com/anamaxlec/live-mygo/issues)
+**[下载 macOS](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.4/LiveMyGo-v0.4.2-beta.4-macos-arm64.dmg)** · **[下载 Windows](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.4/LiveMyGo-v0.4.2-beta.4-windows-amd64-setup.exe)** · [所有版本](https://github.com/anamaxlec/live-mygo/releases) · [反馈问题](https://github.com/anamaxlec/live-mygo/issues)
 
 </div>
 
@@ -49,10 +49,10 @@
 
 ## 下载与安装
 
-当前测试版：[0.4.2-beta.3](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.2-beta.3)。
+当前测试版：[0.4.2-beta.4](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.2-beta.4)。
 
-- **macOS** · Apple Silicon，macOS 27.0+：[DMG](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.3/LiveMyGo-v0.4.2-beta.3-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.3/LiveMyGo-v0.4.2-beta.3-macos-arm64.zip)
-- **Windows** · x64：[安装程序](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.3/LiveMyGo-v0.4.2-beta.3-windows-amd64-setup.exe) · [便携 ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.3/LiveMyGo-v0.4.2-beta.3-windows-amd64.zip)
+- **macOS** · Apple Silicon，macOS 26.0+：[DMG](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.4/LiveMyGo-v0.4.2-beta.4-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.4/LiveMyGo-v0.4.2-beta.4-macos-arm64.zip)
+- **Windows** · x64：[安装程序](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.4/LiveMyGo-v0.4.2-beta.4-windows-amd64-setup.exe) · [便携 ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.4/LiveMyGo-v0.4.2-beta.4-windows-amd64.zip)
 
 **macOS：** 打开 DMG，将 Live MyGo 拖入「应用程序」。目前采用 ad hoc 签名，尚未进行 Apple 公证；如果首次启动受到系统阻止，可前往「系统设置 → 隐私与安全性」手动允许打开。
 

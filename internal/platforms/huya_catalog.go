@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 func (c *Client) huyaCategories(ctx context.Context) ([]Category, error) {
@@ -30,8 +31,11 @@ func (c *Client) huyaCategories(ctx context.Context) ([]Category, error) {
 					id = obj.Value
 				}
 			}
-			if id != "" {
-				parent.Children = append(parent.Children, Category{ID: string(id), ParentID: parent.ID, Name: v.Name})
+			// 分区接口会返回 3203.0，直播列表只识别整数形式的 gameId。
+			whole, fraction, _ := strings.Cut(string(id), ".")
+			value, err := strconv.ParseInt(whole, 10, 64)
+			if err == nil && value > 0 && strings.Trim(fraction, "0") == "" {
+				parent.Children = append(parent.Children, Category{ID: strconv.FormatInt(value, 10), ParentID: parent.ID, Name: v.Name})
 			}
 		}
 		out = append(out, parent)

@@ -1,6 +1,6 @@
 # Windows 测试交接
 
-当前测试包为 `0.4.2-beta.3`，目标为 Windows x64。新增功能和待回归项见 [Windows 新功能交接](2026-11-05-HANDOFF.md)。
+当前测试包为 `0.4.2-beta.4`，目标为 Windows x64。新增功能和待回归项见 [Windows 新功能交接](2026-11-05-HANDOFF.md)。
 
 安装程序为未签名测试构建，安装到当前用户，无需管理员权限。便携版解压后运行 `LiveMyGo.exe`，保留同目录的 `libmpv-2.dll` 和 `cacert.pem`。
 
@@ -19,7 +19,7 @@
 
 - 标题栏：Windows 没有红绿灯，播放页导航按钮改从窗口左边缘开始，标题保持在播放器左边线；窗口按钮仍由系统绘制在右上角。
 - 圆角与黑线：视频不再使用原生子窗口，画面在 MyGo 位图内绘制，播放器 14 px 圆角、聊天面板右上角和窗口右缘不再露出 1–2 px 黑线。
-- 播放链路：`internal/player/render_windows.go` 用 `MPV_RENDER_API_TYPE_SW` 输出 `rgb0` 帧，`internal/app/ui_video_windows.go` 在 UI 线程调用 `ui.Bitmap.Update` 上传；窗口隐藏或最小化时停止呈现，恢复后由 dirty 标记补一帧。注意 `MPV_RENDER_PARAM_SW_POINTER` 直接传像素指针，不是指针的指针；曾因传错导致 `mpv_render_context_render` 访问冲突。窗口启动适配视频时会连续改变尺寸，缓冲池必须丢弃旧尺寸缓冲；否则池子被占满后只渲染 4 帧就停住，斗鱼直播曾复现该问题（表现为画面冻结、声音和弹幕继续）。
+- 播放链路：`internal/player/render_sw.go` 用 `MPV_RENDER_API_TYPE_SW` 输出 `rgb0` 帧，`internal/app/ui_video.go` 在 UI 线程调用 `ui.Bitmap.Update` 上传；窗口隐藏或最小化时停止呈现，恢复后由 dirty 标记补一帧。注意 `MPV_RENDER_PARAM_SW_POINTER` 直接传像素指针，不是指针的指针；曾因传错导致 `mpv_render_context_render` 访问冲突。窗口启动适配视频时会连续改变尺寸，缓冲池必须丢弃旧尺寸缓冲；否则池子被占满后只渲染 4 帧就停住，斗鱼直播曾复现该问题（表现为画面冻结、声音和弹幕继续）。
 - 本地播放：`-file` 加载 1920×1080 H.264/AAC 测试视频，画面可见；测试视频只有 8 秒，长时检查可用 `LIVE_MYGO_QA_LOOP=1`。
 - 真实直播：虎牙、斗鱼、B 站、抖音、企鹅体育均实测有画面；斗鱼 9999 房间 45 秒测试渲染 1110 帧、0 丢帧。斗鱼启动时窗口会连续缩放，旧尺寸缓冲曾把池子占满，导致只出 4 帧后画面冻结；现已按新尺寸回收缓冲，详见“播放链路”。
 - 跨平台压测（2026-10-31）：直接进房各 25 秒，B 站 729 帧、虎牙 1439 帧、斗鱼 610 帧、抖音 1379 帧、企鹅体育 725 帧，全部 0 丢帧；每轮启动都经历 24–25 次尺寸变化，修复后均持续出帧。测试源覆盖 960×540@25、1280×720@30、2560×1440@60 和 1080×1920@60（竖屏）。
@@ -80,8 +80,8 @@ $env:LIVE_MYGO_DATA_DIR = Join-Path $env:TEMP 'live-mygo-windows-qa'
 ## 需要重点验证的实现
 
 - `internal/player/surface_windows.go`：无原生窗口，只维护 HWND、可见性、目标尺寸和帧缓冲；`TakeFrame`/`ReleaseFrame` 由 UI 线程取帧和归还缓冲，`publish` 通过 `Win.Invalidate` 触发重绘。
-- `internal/player/render_windows.go`：加载 `mpv_render_context_*`，由 mpv 更新回调唤醒渲染线程，在可见且有更新时渲染到 RGB0 缓冲；窗口消失时停止呈现，暂停或空闲时阻塞等待，避免后台空转。
-- `internal/app/ui_video_windows.go`：把最新帧包装成 `image.RGBA`，创建或更新 `ui.Bitmap`；更新后再归还上一帧缓冲，保证合成时数据有效。
+- `internal/player/render_sw.go`：加载 `mpv_render_context_*`，由 mpv 更新回调唤醒渲染线程，在可见且有更新时渲染到 RGB0 缓冲；窗口消失时停止呈现，暂停或空闲时阻塞等待，避免后台空转。
+- `internal/app/ui_video.go`：把最新帧包装成 `image.RGBA`，创建或更新 `ui.Bitmap`；更新后再归还上一帧缓冲，保证合成时数据有效。
 - `internal/player/library_windows.go`：从程序旁加载 DLL，`vo=libmpv`；TLS 证书校验保持开启。
 - `internal/app/ui_browse.go`、`ui_desktop.go`、`ui_discovery.go`、`ui_player.go`：标题栏高度、侧栏动画、统一左边线、分区标签、刷新按钮和网格列数。对齐细节与 macOS 移植说明见 [macOS 交接文档](../macos/README.md)。
 - `internal/app/ui_platform.go` 和 `keys_windows.go`：标题栏右侧安全区、Ctrl 快捷键与 F11 全屏。

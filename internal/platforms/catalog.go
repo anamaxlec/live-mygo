@@ -73,18 +73,26 @@ func (c *Client) douyuCatalog(ctx context.Context, target string, page int) (Cat
 }
 
 func (c *Client) biliCatalog(ctx context.Context, page int, category Category) (Catalog, error) {
-	session, err := c.biliGuest(ctx)
-	if err != nil {
-		return Catalog{}, err
-	}
-	c = session
-	q := url.Values{"platform": {"web"}, "sort": {"online"}, "page_size": {"24"}, "page": {strconv.Itoa(page)}}
-	if category.ID != "" {
-		q.Set("parent_area_id", category.ParentID)
+	const pageSize = 24
+	target := "https://api.live.bilibili.com/xlive/web-interface/v1/second/getListByArea"
+	q := url.Values{"platform": {"web"}, "page_size": {strconv.Itoa(pageSize)}, "page": {strconv.Itoa(page)}}
+	if category.ID == "" {
+		session, err := c.biliGuest(ctx)
+		if err != nil {
+			return Catalog{}, err
+		}
+		c = session
+		q.Set("sort", "online")
+		if err := c.wbi(ctx, q); err != nil {
+			return Catalog{}, err
+		}
+	} else {
+		// getListByArea 是全部直播的推荐接口，会忽略分区参数。
+		target = "https://api.live.bilibili.com/room/v3/area/getRoomList"
+		q.Set("parent_id", category.ParentID)
 		q.Set("area_id", category.ID)
-	}
-	if err := c.wbi(ctx, q); err != nil {
-		return Catalog{}, err
+		q.Set("cate_id", "0")
+		q.Set("sort_type", "online")
 	}
 	var r struct {
 		Code int `json:"code"`
@@ -92,13 +100,13 @@ func (c *Client) biliCatalog(ctx context.Context, page int, category Category) (
 			List []biliCard `json:"list"`
 		} `json:"data"`
 	}
-	if err := c.request(ctx, Bilibili, http.MethodGet, "https://api.live.bilibili.com/xlive/web-interface/v1/second/getListByArea?"+q.Encode(), "https://live.bilibili.com/", nil, &r); err != nil {
+	if err := c.request(ctx, Bilibili, http.MethodGet, target+"?"+q.Encode(), "https://live.bilibili.com/", nil, &r); err != nil {
 		return Catalog{}, err
 	}
 	if r.Code != 0 {
-		return Catalog{}, fmt.Errorf("B 站推荐请求失败（code %d），可在账号设置中登录后重试", r.Code)
+		return Catalog{}, fmt.Errorf("B 站直播列表加载失败（code %d），可在账号设置中登录后重试", r.Code)
 	}
-	out := Catalog{HasMore: len(r.Data.List) >= 24}
+	out := Catalog{HasMore: len(r.Data.List) >= pageSize}
 	for _, v := range r.Data.List {
 		out.Rooms = append(out.Rooms, v.room())
 	}

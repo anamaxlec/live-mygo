@@ -147,6 +147,10 @@ func (a *app) browseView(c *ui.Context) {
 			return
 		}
 		if len(rooms) == 0 {
+			if !local && a.catalogQuery == "" && a.category.ID != "" {
+				emptyStateAction(c, iconTV, "这个分区暂时没有直播", "", "查看全部直播", func() { a.selectCategory(platforms.Category{}) })
+				return
+			}
 			heading, detail, icon := "没有找到直播间", "换一个主播名，或直接输入房间号。", iconSearch
 			if a.page == "favorites" {
 				heading, detail, icon = "还没有关注直播间", "点亮直播间的爱心，即可在这里找到它。", iconHeart

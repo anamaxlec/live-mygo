@@ -4,10 +4,13 @@ cd "$(dirname "$0")/.."
 version=$(tr -d '\r\n' < VERSION)
 short_version=${version%%-*}
 bundle="build/LiveMyGo.app"
+export MACOSX_DEPLOYMENT_TARGET="${LIVE_MYGO_MIN_MACOS:-26.0}"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 go run ./cmd/icon
 iconutil -c icns build/AppIcon.iconset -o "$bundle/Contents/Resources/AppIcon.icns"
-CGO_CFLAGS="${CGO_CFLAGS:-} -I$(brew --prefix ffmpeg)/include" CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$(brew --prefix ffmpeg)/lib" go build -o "$bundle/Contents/MacOS/live-mygo" .
+CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET -I$(brew --prefix ffmpeg)/include" \
+CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET -L$(brew --prefix ffmpeg)/lib" \
+go build -o "$bundle/Contents/MacOS/live-mygo" .
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -25,6 +28,7 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 plutil -replace CFBundleShortVersionString -string "$short_version" "$bundle/Contents/Info.plist"
+plutil -replace LSMinimumSystemVersion -string "$MACOSX_DEPLOYMENT_TARGET" "$bundle/Contents/Info.plist"
 plutil -insert LiveMyGoReleaseVersion -string "$version" "$bundle/Contents/Info.plist"
 plutil -insert CFBundleGetInfoString -string "Live MyGo $version 测试版" "$bundle/Contents/Info.plist"
 if [ "${LIVE_MYGO_BUNDLE_PLAYER:-1}" != "0" ]; then

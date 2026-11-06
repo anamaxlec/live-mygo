@@ -45,7 +45,3 @@ func loadLibrary() (uintptr, error) {
 func librarySymbol(lib uintptr, name string) (uintptr, error) {
 	return syscall.GetProcAddress(syscall.Handle(lib), name)
 }
-
-func surfaceOptions(*Surface) [][2]string {
-	return [][2]string{{"vo", "libmpv"}}
-}

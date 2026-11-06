@@ -30,7 +30,3 @@ func loadLibrary() (uintptr, error) {
 }
 
 func librarySymbol(lib uintptr, name string) (uintptr, error) { return purego.Dlsym(lib, name) }
-
-func surfaceOptions(*Surface) [][2]string {
-	return [][2]string{{"vo", "libmpv"}, {"video-timing-offset", "0"}}
-}

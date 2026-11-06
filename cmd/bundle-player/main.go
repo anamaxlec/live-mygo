@@ -54,6 +54,16 @@ func resolve(ref, parent string) string {
 	if system(ref) {
 		return ""
 	}
+	if prefix := os.Getenv("LIVE_MYGO_OPENSSL_PREFIX"); prefix != "" {
+		switch name := filepath.Base(ref); name {
+		case "libssl.3.dylib", "libcrypto.3.dylib":
+			path, err := filepath.EvalSymlinks(filepath.Join(prefix, "lib", name))
+			if err != nil {
+				panic(fmt.Sprintf("LIVE_MYGO_OPENSSL_PREFIX 缺少 %s：%v", name, err))
+			}
+			return path
+		}
+	}
 	paths := []string{ref}
 	if strings.HasPrefix(ref, "@loader_path/") {
 		paths = []string{filepath.Join(filepath.Dir(parent), strings.TrimPrefix(ref, "@loader_path/"))}
@@ -87,7 +97,7 @@ func resolve(ref, parent string) string {
 }
 
 func minimumOS(path string) string {
-	version := "0.0"
+	version := ""
 	active := false
 	for _, line := range strings.Split(run("otool", "-l", path), "\n") {
 		v := strings.TrimSpace(line)
@@ -121,6 +131,13 @@ func newer(a, b string) bool {
 	return z > r
 }
 
+func requireCompatible(path, target string) {
+	version := minimumOS(path)
+	if version == "" || newer(version, target) {
+		panic(fmt.Sprintf("无法为 macOS %s 打包 %s（部署目标 %q）；请使用面向 macOS %s 构建的依赖。OpenSSL 可通过 LIVE_MYGO_OPENSSL_PREFIX 指定。", target, path, version, target))
+	}
+}
+
 func main() {
 	bundle := "build/LiveMyGo.app"
 	if len(os.Args) > 1 {
@@ -146,6 +163,11 @@ func main() {
 	names := map[string]string{}
 	queue := []string{source}
 	binary := filepath.Join(bundle, "Contents/MacOS/live-mygo")
+	targetOS := os.Getenv("MACOSX_DEPLOYMENT_TARGET")
+	if targetOS == "" {
+		targetOS = "26.0"
+	}
+	requireCompatible(binary, targetOS)
 	binaryRefs := map[string]string{}
 	// 原生内核直接链接 FFmpeg；同时收集可执行文件的实际依赖，
 	// 避免 Homebrew 中 mpv 与 FFmpeg 版本不同时误配 ABI。
@@ -164,6 +186,7 @@ func main() {
 		if libraries[path] != nil {
 			continue
 		}
+		requireCompatible(path, targetOS)
 		name := filepath.Base(path)
 		if old := names[name]; old != "" && old != path {
 			panic("动态库名称冲突：" + name)
@@ -187,7 +210,6 @@ func main() {
 	}
 	frameworks := filepath.Join(bundle, "Contents/Frameworks")
 	resources := filepath.Join(bundle, "Contents/Resources")
-	minimum := minimumOS(filepath.Join(bundle, "Contents/MacOS/live-mygo"))
 	var ordered []string
 	for path := range libraries {
 		ordered = append(ordered, path)
@@ -208,9 +230,6 @@ func main() {
 			run("install_name_tool", "-change", ref, "@loader_path/"+libraries[entry.refs[ref]].name, target)
 		}
 		run("codesign", "--force", "--sign", "-", target)
-		if version := minimumOS(path); newer(version, minimum) {
-			minimum = version
-		}
 		fmt.Fprintf(&notices, "%s\n  %s\n", entry.name, entry.source)
 		// Homebrew 将源许可证保留在 keg 中；保留可找到的原始许可证。
 		for parent := filepath.Dir(entry.source); parent != "/"; parent = filepath.Dir(parent) {
@@ -239,6 +258,9 @@ func main() {
 			break
 		}
 	}
+	if prefix := os.Getenv("LIVE_MYGO_OPENSSL_PREFIX"); prefix != "" {
+		copyFile(filepath.Join(prefix, "LICENSE.txt"), filepath.Join(resources, "licenses", "openssl@3", "LICENSE.txt"))
+	}
 	if err = os.WriteFile(filepath.Join(resources, "linked-libraries.txt"), []byte(notices.String()), 0644); err != nil {
 		panic(err)
 	}
@@ -251,6 +273,6 @@ func main() {
 			break
 		}
 	}
-	run("plutil", "-replace", "LSMinimumSystemVersion", "-string", minimum, filepath.Join(bundle, "Contents/Info.plist"))
-	fmt.Printf("已内置 %d 个播放器动态库；最低系统版本 %s。\n", len(libraries), minimum)
+	run("plutil", "-replace", "LSMinimumSystemVersion", "-string", targetOS, filepath.Join(bundle, "Contents/Info.plist"))
+	fmt.Printf("已内置 %d 个播放器动态库；最低系统版本 %s。\n", len(libraries), targetOS)
 }

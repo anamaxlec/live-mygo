@@ -12,10 +12,11 @@ import (
 	"live-mygo/internal/player"
 )
 
-// 平时保留原生视频视图。返回列表时才在播放器线程取一帧给变形层。
-func (a *app) takeVideoFrame() {}
-
+// 原生视频视图在返回列表时由播放器线程取一帧给变形层。
 func (a *app) captureReturnFrame() bool {
+	if _, software := a.surface.(player.FrameSource); software {
+		return false
+	}
 	if a.win == nil || a.player == nil || a.closing || a.page != "player" ||
 		a.waitingForVideo() || a.audioOnly() || a.companion || a.win.IsFullScreen() ||
 		(a.returnFrame != nil && !a.cardOpenAt.IsZero()) ||

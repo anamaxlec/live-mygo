@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -53,11 +54,48 @@ type Surface struct {
 }
 
 func NewSurface(window uintptr, backend ...string) (VideoSurface, error) {
+	if window == 0 {
+		return nil, errors.New("无法创建 macOS 视频容器：窗口句柄无效")
+	}
 	if selectedBackend(backend) == "vt" {
 		return newVTSurface(window)
 	}
-	return newGLSurface(window)
+	if !isVirtualMachine() {
+		if surface, err := newGLSurface(window); err == nil {
+			return surface, nil
+		}
+	}
+	return &softwareWindowSurface{softwareSurface: newSoftwareSurface(), window: objc.ID(window)}, nil
 }
+
+var isVirtualMachine = sync.OnceValue(func() bool {
+	value, err := syscall.SysctlUint32("kern.hv_vmm_present")
+	return err == nil && value == 1
+})
+
+type softwareWindowSurface struct {
+	*softwareSurface
+	window objc.ID
+}
+
+func (s *softwareWindowSurface) mpvOptions() [][2]string {
+	return [][2]string{{"vo", "libmpv"}, {"hwdec", "no"}}
+}
+
+func (s *softwareWindowSurface) Show(show bool) {
+	s.softwareSurface.Show(show && macWindowVisible(s.window))
+}
+
+func (s *softwareWindowSurface) SetWindowButtonsVisible(visible bool) {
+	setMacWindowButtonsVisible(s.window, visible)
+}
+
+func (s *Surface) mpvOptions() [][2]string {
+	return [][2]string{{"vo", "libmpv"}, {"video-timing-offset", "0"}}
+}
+
+func (s *Surface) renderVisible() bool        { return s.visible.Load() }
+func (s *Surface) renderSize() (int64, int64) { return s.width.Load(), s.height.Load() }
 
 func newGLSurface(window uintptr) (*Surface, error) {
 	lib, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", purego.RTLD_NOW|purego.RTLD_GLOBAL)
@@ -106,6 +144,12 @@ func newGLSurface(window uintptr) (*Surface, error) {
 	if s.view == 0 {
 		return nil, errors.New("无法创建原生视频视图")
 	}
+	ready := false
+	defer func() {
+		if !ready {
+			s.Close()
+		}
+	}()
 	glSurfaces.Store(s.view, s)
 	s.view.Send(objc.RegisterName("setWantsBestResolutionOpenGLSurface:"), true)
 	s.view.Send(objc.RegisterName("setHidden:"), true)
@@ -137,13 +181,18 @@ func newGLSurface(window uintptr) (*Surface, error) {
 	}
 	s.width.Store(1280)
 	s.height.Store(720)
+	ready = true
 	return s, nil
 }
 
 // 与窗口布局一起在 UI 线程调用；小窗使用画面内的浮动标题操作。
 func (s *Surface) SetWindowButtonsVisible(visible bool) {
+	setMacWindowButtonsVisible(s.window, visible)
+}
+
+func setMacWindowButtonsVisible(window objc.ID, visible bool) {
 	for _, kind := range []uintptr{0, 1, 2} {
-		button := s.window.Send(objc.RegisterName("standardWindowButton:"), kind)
+		button := window.Send(objc.RegisterName("standardWindowButton:"), kind)
 		if button != 0 {
 			button.Send(objc.RegisterName("setHidden:"), !visible)
 		}
@@ -199,7 +248,7 @@ func (s *Surface) SetBounds(x, y, w, h, windowHeight float64) bool {
 func (s *Surface) Show(show bool) {
 	// 完全被遮挡或最小化时停止提交视频帧，恢复可见后由下一次 UI / 状态更新唤醒。
 	// AppKit 的窗口状态只在主线程读取。
-	show = show && s.window.Send(objc.RegisterName("isVisible")) != 0 && s.window.Send(objc.RegisterName("occlusionState"))&(1<<1) != 0
+	show = show && macWindowVisible(s.window)
 	if s.visible.Swap(show) != show {
 		s.frameMu.Lock()
 		s.lock(s.context)
@@ -210,6 +259,11 @@ func (s *Surface) Show(show bool) {
 		s.dirty.Store(true)
 		s.notify()
 	}
+}
+
+func macWindowVisible(window objc.ID) bool {
+	return window.Send(objc.RegisterName("isVisible")) != 0 &&
+		window.Send(objc.RegisterName("occlusionState"))&(1<<1) != 0
 }
 
 func (s *Surface) notify() {

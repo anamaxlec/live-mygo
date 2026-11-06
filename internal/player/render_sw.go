@@ -1,4 +1,4 @@
-//go:build windows && (amd64 || arm64)
+//go:build darwin || windows
 
 package player
 
@@ -10,26 +10,9 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-type renderParam struct {
-	Type int32
-	_    int32
-	Data unsafe.Pointer
-}
-
-type renderer struct {
-	stop    chan struct{}
-	done    chan struct{}
-	surface *Surface
-}
-
-func (r *renderer) close() {
-	close(r.stop)
-	<-r.done
-}
-
-// initRenderer 在固定线程上创建软件渲染上下文。mpv 按视频时钟阻塞每次 render，
+// startRenderer 在固定线程上创建软件渲染上下文。mpv 按视频时钟阻塞每次 render，
 // 从而保持音画同步；更新回调只负责唤醒渲染线程，不在 mpv 线程中绘制。
-func (p *Player) initRenderer(lib uintptr, s *Surface) error {
+func (s *softwareSurface) startRenderer(p *Player, lib uintptr) error {
 	r := &renderer{stop: make(chan struct{}), done: make(chan struct{}), surface: s}
 	ready := make(chan error, 1)
 	go func() {
@@ -116,7 +99,7 @@ func (p *Player) initRenderer(lib uintptr, s *Surface) error {
 				s.releaseBuffer(buf)
 				continue
 			}
-			// Windows 仅支持小端架构；按像素补齐 rgb0 未定义的 alpha。
+			// 支持的架构使用小端序；按像素补齐 rgb0 未定义的 alpha。
 			pixels := unsafe.Slice((*uint32)(unsafe.Pointer(&buf[0])), len(buf)/4)
 			for i := range pixels {
 				pixels[i] |= 0xff000000

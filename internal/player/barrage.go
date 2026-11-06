@@ -107,7 +107,7 @@ func (p *Player) AddBarrage(text string, color uint32) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.barrage.Enabled || p.renderer == nil || !p.renderer.surface.visible.Load() {
+	if !p.barrage.Enabled || p.renderer == nil || !p.renderer.surface.renderVisible() {
 		return
 	}
 	now := time.Now()
@@ -171,14 +171,15 @@ func (p *Player) TickBarrage() error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.handle == 0 || !p.barrage.Enabled || p.renderer == nil || !p.renderer.surface.visible.Load() {
+	if p.handle == 0 || !p.barrage.Enabled || p.renderer == nil || !p.renderer.surface.renderVisible() {
 		return nil
 	}
 	if len(p.barrage.Items) == 0 && !p.barrage.Drawn {
 		return nil
 	}
 	now := time.Now()
-	canvasWidth := 720 * float64(p.renderer.surface.width.Load()) / float64(max(1, p.renderer.surface.height.Load()))
+	width, height := p.renderer.surface.renderSize()
+	canvasWidth := 720 * float64(width) / float64(max(1, height))
 	aspect := p.barrage.VideoAspect
 	if aspect <= 0 {
 		aspect = 16.0 / 9
@@ -228,5 +229,5 @@ func (p *Player) BarrageActive() bool {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.barrage.Enabled && p.renderer != nil && p.renderer.surface.visible.Load() && (len(p.barrage.Items) > 0 || p.barrage.Drawn)
+	return p.barrage.Enabled && p.renderer != nil && p.renderer.surface.renderVisible() && (len(p.barrage.Items) > 0 || p.barrage.Drawn)
 }

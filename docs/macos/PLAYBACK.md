@@ -15,6 +15,10 @@
 
 需要 Go 1.27.3、Xcode Command Line Tools、Homebrew `mpv` 与 `ffmpeg`。普通 macOS cgo 构建即包含两套内核，无需 `vtplayer` 标签。`scripts/build.sh` 会把直接链接的 FFmpeg 路径改为应用包内的动态库，然后签名。
 
+默认部署目标是 macOS 26.0，可用 `LIVE_MYGO_MIN_MACOS` 指定其他版本。打包时校验主程序和内置库的部署目标。如果构建机上的 OpenSSL 要求更高版本，可用 `LIVE_MYGO_OPENSSL_PREFIX` 指定重新编译的同版本 OpenSSL。该目录须包含 `lib/libssl.3.dylib`、`lib/libcrypto.3.dylib` 和 `LICENSE.txt`，并使用目标 macOS 版本编译。
+
+mpv 在无法创建原生 OpenGL 视图时使用软件渲染。macOS 虚拟机直接使用 mpv 软件解码和渲染，设置中会说明实际内核。保存的原生硬解偏好会保留，供实体 Mac 使用。
+
 ```sh
 go test -race -count=1 ./...
 sh scripts/build.sh

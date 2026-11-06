@@ -65,13 +65,13 @@ func New(surface VideoSurface) (*Player, error) {
 	if surface == nil {
 		return newMPVPlayer(nil)
 	}
-	if gl, ok := surface.(*Surface); ok {
-		return newMPVPlayer(gl)
+	if mpv, ok := surface.(mpvSurface); ok {
+		return newMPVPlayer(mpv)
 	}
 	return newVTPlayer(surface)
 }
 
-func newMPVPlayer(surface *Surface) (*Player, error) {
+func newMPVPlayer(surface mpvSurface) (*Player, error) {
 	lib, err := loadLibrary()
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func newMPVPlayer(surface *Surface) (*Player, error) {
 		}
 	}
 	if surface != nil {
-		opts = append(opts, surfaceOptions(surface)...)
+		opts = append(opts, surface.mpvOptions()...)
 	} else {
 		opts = append(opts, [2]string{"vo", "null"}, [2]string{"ao", "null"})
 	}
@@ -129,7 +129,7 @@ func newMPVPlayer(surface *Surface) (*Player, error) {
 		return nil, fmt.Errorf("libmpv 初始化失败：%s", p.api.errorString(rc))
 	}
 	if surface != nil {
-		if err := p.initRenderer(lib, surface); err != nil {
+		if err := surface.startRenderer(p, lib); err != nil {
 			p.api.destroy(p.handle)
 			return nil, err
 		}
@@ -248,7 +248,7 @@ func (p *Player) Stats() Stats {
 	num := func(name string) float64 { v, _ := strconv.ParseFloat(get(name), 64); return v }
 	stats := Stats{Position: num("time-pos"), Width: int(num("video-params/w")), Height: int(num("video-params/h")), FPS: num("container-fps"), Hardware: get("hwdec-current"), VideoCodec: get("video-codec"), AudioCodec: get("audio-codec-name"), AVSync: num("avsync"), Dropped: int(num("frame-drop-count")), Paused: get("pause") == "yes", Muted: get("mute") == "yes", Idle: get("idle-active") == "yes", Error: p.lastErr}
 	if p.renderer != nil {
-		stats.Visible = p.renderer.surface.visible.Load()
+		stats.Visible = p.renderer.surface.renderVisible()
 		if stats.Error == "" {
 			stats.Error = p.renderer.surface.RenderError()
 		}

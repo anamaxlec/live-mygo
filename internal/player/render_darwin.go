@@ -10,28 +10,13 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-type renderParam struct {
-	Type int32
-	_    int32
-	Data unsafe.Pointer
-}
 type glInit struct {
 	GetProc uintptr
 	Context uintptr
 }
 type glFBO struct{ ID, Width, Height, Format int32 }
-type renderer struct {
-	stop    chan struct{}
-	done    chan struct{}
-	surface *Surface
-}
 
-func (r *renderer) close() {
-	close(r.stop)
-	<-r.done
-}
-
-func (p *Player) initRenderer(lib uintptr, s *Surface) error {
+func (s *Surface) startRenderer(p *Player, lib uintptr) error {
 	r := &renderer{stop: make(chan struct{}), done: make(chan struct{}), surface: s}
 	ready := make(chan error, 1)
 	go func() {

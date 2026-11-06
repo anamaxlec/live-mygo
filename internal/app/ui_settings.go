@@ -324,6 +324,11 @@ func (a *app) playbackSettings(c *ui.Context) {
 					}
 				})
 				settingsDivider(c)
+			} else if reason := player.NativeBackendUnavailableReason(); reason != "" {
+				settingsRow(c, "播放内核", func() {
+					ui.Text(c, reason).FontSize(12).TextColor(p.muted)
+				})
+				settingsDivider(c)
 			}
 			settingsRow(c, "默认画质", func() {
 				label := defaultQualityLabel(a.library.Preferences.DefaultQuality)

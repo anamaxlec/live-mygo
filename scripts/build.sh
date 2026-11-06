@@ -4,10 +4,14 @@ cd "$(dirname "$0")/.."
 version=$(tr -d '\r\n' < VERSION)
 short_version=${version%%-*}
 bundle="build/LiveMyGo.app"
+# macOS 26 是当前正式版。构建机即使装了更新的测试版 SDK，
+# 也不能把安装包的最低系统版本抬高。
+macos_min=${LIVE_MYGO_MIN_MACOS:-26.0}
+export MACOSX_DEPLOYMENT_TARGET="$macos_min"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 go run ./cmd/icon
 iconutil -c icns build/AppIcon.iconset -o "$bundle/Contents/Resources/AppIcon.icns"
-CGO_CFLAGS="${CGO_CFLAGS:-} -I$(brew --prefix ffmpeg)/include" CGO_LDFLAGS="${CGO_LDFLAGS:-} -L$(brew --prefix ffmpeg)/lib" go build -o "$bundle/Contents/MacOS/live-mygo" .
+CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=$macos_min -I$(brew --prefix ffmpeg)/include" CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=$macos_min -L$(brew --prefix ffmpeg)/lib" go build -o "$bundle/Contents/MacOS/live-mygo" .
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -20,15 +24,16 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>0.4.0</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
 plutil -replace CFBundleShortVersionString -string "$short_version" "$bundle/Contents/Info.plist"
+plutil -replace LSMinimumSystemVersion -string "$macos_min" "$bundle/Contents/Info.plist"
 plutil -insert LiveMyGoReleaseVersion -string "$version" "$bundle/Contents/Info.plist"
 plutil -insert CFBundleGetInfoString -string "Live MyGo $version 测试版" "$bundle/Contents/Info.plist"
 if [ "${LIVE_MYGO_BUNDLE_PLAYER:-1}" != "0" ]; then
-  go run ./cmd/bundle-player "$bundle"
+  LIVE_MYGO_MIN_MACOS="$macos_min" go run ./cmd/bundle-player "$bundle"
 fi
 mkdir -p "$bundle/Contents/Resources/licenses/LiveMyGo"
 cp LICENSE "$bundle/Contents/Resources/licenses/LiveMyGo/LICENSE"

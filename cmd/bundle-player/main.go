@@ -86,8 +86,8 @@ func resolve(ref, parent string) string {
 	panic("无法定位播放器依赖：" + ref)
 }
 
-func minimumOS(path string) string {
-	version := "0.0"
+func buildVersions(path string) (string, string) {
+	minos, sdk := "", ""
 	active := false
 	for _, line := range strings.Split(run("otool", "-l", path), "\n") {
 		v := strings.TrimSpace(line)
@@ -97,15 +97,42 @@ func minimumOS(path string) string {
 		if v == "cmd LC_BUILD_VERSION" || v == "cmd LC_VERSION_MIN_MACOSX" {
 			active = true
 		}
-		if active && (strings.HasPrefix(v, "minos ") || strings.HasPrefix(v, "version ")) {
-			parts := strings.Fields(v)
-			if len(parts) > 1 {
-				version = parts[1]
-				break
-			}
+		if !active {
+			continue
+		}
+		parts := strings.Fields(v)
+		if len(parts) < 2 {
+			continue
+		}
+		if minos == "" && (parts[0] == "minos" || parts[0] == "version") {
+			minos = parts[1]
+		}
+		if sdk == "" && parts[0] == "sdk" {
+			sdk = parts[1]
 		}
 	}
-	return version
+	return minos, sdk
+}
+
+func sdkVersion() string {
+	return strings.TrimSpace(run("xcrun", "--show-sdk-version"))
+}
+
+// rewriteMinimum 把高于目标版本的 Mach-O 最低系统版本改写为目标值，
+// 避免在装有测试版 SDK 的构建机上产出的安装包要求新系统。
+func rewriteMinimum(path, target, sdk string) {
+	tmp := path + ".vtool"
+	run("xcrun", "vtool", "-set-build-version", "macos", target, sdk, "-replace", "-output", tmp, path)
+	info, err := os.Stat(path)
+	if err != nil {
+		panic(err)
+	}
+	if err = os.Chmod(tmp, info.Mode()); err != nil {
+		panic(err)
+	}
+	if err = os.Rename(tmp, path); err != nil {
+		panic(err)
+	}
 }
 
 func newer(a, b string) bool {
@@ -141,6 +168,10 @@ func main() {
 	source, err := filepath.EvalSymlinks(source)
 	if err != nil {
 		panic(err)
+	}
+	minMacOS := os.Getenv("LIVE_MYGO_MIN_MACOS")
+	if minMacOS == "" {
+		minMacOS = "26.0"
 	}
 	libraries := map[string]*library{}
 	names := map[string]string{}
@@ -187,7 +218,6 @@ func main() {
 	}
 	frameworks := filepath.Join(bundle, "Contents/Frameworks")
 	resources := filepath.Join(bundle, "Contents/Resources")
-	minimum := minimumOS(filepath.Join(bundle, "Contents/MacOS/live-mygo"))
 	var ordered []string
 	for path := range libraries {
 		ordered = append(ordered, path)
@@ -207,10 +237,17 @@ func main() {
 		for _, ref := range refs {
 			run("install_name_tool", "-change", ref, "@loader_path/"+libraries[entry.refs[ref]].name, target)
 		}
-		run("codesign", "--force", "--sign", "-", target)
-		if version := minimumOS(path); newer(version, minimum) {
-			minimum = version
+		if oldVersion, sdk := buildVersions(target); newer(oldVersion, minMacOS) {
+			if sdk == "" || newer(minMacOS, sdk) {
+				sdk = sdkVersion()
+			}
+			rewriteMinimum(target, minMacOS, sdk)
+			if version, _ := buildVersions(target); newer(version, minMacOS) {
+				panic("无法把 " + entry.name + " 的最低系统版本降到 " + minMacOS)
+			}
+			fmt.Printf("已把 %s 的最低系统版本从 %s 调整为 %s。\n", entry.name, oldVersion, minMacOS)
 		}
+		run("codesign", "--force", "--sign", "-", target)
 		fmt.Fprintf(&notices, "%s\n  %s\n", entry.name, entry.source)
 		// Homebrew 将源许可证保留在 keg 中；保留可找到的原始许可证。
 		for parent := filepath.Dir(entry.source); parent != "/"; parent = filepath.Dir(parent) {
@@ -245,12 +282,22 @@ func main() {
 	for ref, path := range binaryRefs {
 		run("install_name_tool", "-change", ref, "@executable_path/../Frameworks/"+libraries[path].name, binary)
 	}
+	if oldVersion, sdk := buildVersions(binary); newer(oldVersion, minMacOS) {
+		if sdk == "" || newer(minMacOS, sdk) {
+			sdk = sdkVersion()
+		}
+		rewriteMinimum(binary, minMacOS, sdk)
+		if version, _ := buildVersions(binary); newer(version, minMacOS) {
+			panic("无法把主程序的最低系统版本降到 " + minMacOS)
+		}
+		fmt.Printf("已把主程序的最低系统版本从 %s 调整为 %s。\n", oldVersion, minMacOS)
+	}
 	for _, path := range []string{"/opt/homebrew/etc/ca-certificates/cert.pem", "/usr/local/etc/ca-certificates/cert.pem"} {
 		if _, err = os.Stat(path); err == nil {
 			copyFile(path, filepath.Join(resources, "cacert.pem"))
 			break
 		}
 	}
-	run("plutil", "-replace", "LSMinimumSystemVersion", "-string", minimum, filepath.Join(bundle, "Contents/Info.plist"))
-	fmt.Printf("已内置 %d 个播放器动态库；最低系统版本 %s。\n", len(libraries), minimum)
+	run("plutil", "-replace", "LSMinimumSystemVersion", "-string", minMacOS, filepath.Join(bundle, "Contents/Info.plist"))
+	fmt.Printf("已内置 %d 个播放器动态库；最低系统版本 %s。\n", len(libraries), minMacOS)
 }

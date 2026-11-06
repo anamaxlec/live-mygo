@@ -3,6 +3,7 @@
 package app
 
 import (
+	"image"
 	"math"
 
 	"github.com/egoist/mygo"
@@ -106,10 +107,19 @@ func TestReturningToBrowseKeepsLayoutStillWhileContentAppears(t *testing.T) {
 		a.page, a.returnPage, a.focusMode, a.shown = "player", "home", true, true
 		a.catalog = []platforms.Room{{Platform: platforms.Bilibili, ID: "1", Title: "缓存直播", Live: true}}
 		a.homeCatalog = homeCatalogState{rooms: a.catalog, updated: time.Now()}
+		a.targetRoom = a.catalog[0]
+		a.stream = &platforms.Stream{Room: a.targetRoom}
+		a.videoBitmap = ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 16, 9)))
 		tester := ui.NewTester(a.view, 1180, 780)
 		tester.SetPreferences(ui.Preferences{ReduceMotion: reduced, TextScale: 1})
-		a.backToBrowse()
+		if err := tester.Click("返回列表 · Esc"); err != nil {
+			t.Fatal(err)
+		}
 		tester.Frame()
+		if px := tester.Image().RGBAAt(300, 200); px.R > 32 || px.G > 32 || px.B > 32 {
+			t.Fatalf("返回首帧提前露出列表底色：%v", px)
+		}
+		tester.Advance(20 * time.Millisecond)
 		before, found := tester.Find("为你推荐")
 		if !found || a.navWidth != sidebarWidth {
 			t.Fatalf("返回时仍在挤压内容：sidebar=%v found=%v", a.navWidth, found)
@@ -119,6 +129,136 @@ func TestReturningToBrowseKeepsLayoutStillWhileContentAppears(t *testing.T) {
 		if before.X != after.X || before.W != after.W || a.navWidth != sidebarWidth {
 			t.Fatal("侧栏出现时浏览内容仍在横向移动", before, after)
 		}
+		card := a.nowCardBounds
+		if !a.returnShrink || card.W < 100 || card.H < 50 {
+			t.Fatal("未进入收拢过渡或未取得卡片边界", card)
+		}
+		tester.SetSize(1180, 840)
+		if updated := a.nowCardBounds; math.Abs(float64(updated.Y-card.Y-60)) > 1 {
+			t.Fatal("窗口高度变化后未跟随实际卡片位置", card, updated)
+		}
+		button, found := tester.Find("返回正在播放的直播间")
+		if !found {
+			t.Fatal("浏览页未创建正在播放卡片")
+		}
+		tester.ClickAt(button.X+button.W/2, button.Y+button.H/2)
+		if a.page != "home" {
+			t.Fatal("过渡层允许点击穿透卡片")
+		}
+		if !reduced {
+			tester.Advance(returnCardCatchDip - tester.Now().Sub(a.returnShrinkAt))
+			tester.Frame()
+			dip, _ := tester.Find("返回正在播放的直播间")
+			tester.Advance(returnCardCatchPeak - returnCardCatchDip)
+			tester.Frame()
+			peak, _ := tester.Find("返回正在播放的直播间")
+			if dip.W >= button.W-2 || peak.W <= button.W+1 {
+				t.Fatalf("卡片交接没有轻压再回弹，原宽 %.1f，压缩 %.1f，回弹 %.1f", button.W, dip.W, peak.W)
+			}
+		}
+		tester.Advance(returnCardCatchEnd)
+		if a.returnShrink {
+			t.Fatal("动画结束后仍保留过渡层")
+		}
+		if err := tester.Click("返回正在播放的直播间"); err != nil {
+			t.Fatal("动画结束后无法通过卡片恢复直播间", err)
+		}
+		if !reduced {
+			tester.Advance(cardOpenDuration / 2)
+			tester.Frame()
+			if a.cardOpenAt.IsZero() || a.page != "home" {
+				t.Fatal("重新打开未从卡片展开，或提前切换了页面")
+			}
+			tester.Advance(cardOpenDuration)
+		}
+		if a.page != "player" {
+			t.Fatal("展开结束后未切到播放页")
+		}
+	}
+}
+
+func TestSidebarReturnSettingExpandsWithoutPageFade(t *testing.T) {
+	a := polishApp(t)
+	a.settings.tab = settingsPlayback
+	settings := ui.NewTester(a.settingsView, 820, 1000)
+	if err := settings.Click("收拢到卡片"); err != nil {
+		t.Fatal(err)
+	}
+	settings.Frame()
+	if err := settings.Click("展开侧栏"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.library.Preferences.ClassicReturn {
+		t.Fatal("未保存展开侧栏选项")
+	}
+	a.page, a.returnPage, a.focusMode, a.shown = "player", "history", true, true
+	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "1", Title: "测试直播"}
+	a.videoBitmap = ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 16, 9)))
+	view := ui.NewTester(a.view, 1180, 780)
+	if err := view.Click("返回列表 · Esc"); err != nil {
+		t.Fatal(err)
+	}
+	view.Frame()
+	if a.page != "history" || a.returnShrink || a.returnFrame != nil {
+		t.Fatal("展开侧栏未直接进入列表，或启动了收拢")
+	}
+	heading, found := view.Find("最近观看的直播会留在这里")
+	if !found {
+		t.Fatal("返回首帧未显示浏览内容")
+	}
+	img := view.Image()
+	ink := false
+	for y := int(heading.Y); y < int(heading.Y+heading.H) && !ink; y++ {
+		for x := int(heading.X); x < int(heading.X+heading.W); x++ {
+			if img.RGBAAt(x, y).R < 150 {
+				ink = true
+				break
+			}
+		}
+	}
+	if !ink {
+		t.Fatal("返回首帧仍在淡入浏览内容")
+	}
+	view.Advance(100 * time.Millisecond)
+	if a.navWidth <= 0 || a.navWidth >= sidebarWidth {
+		t.Fatalf("侧栏没有从收起状态展开，中间帧宽度 %.1f", a.navWidth)
+	}
+	view.Advance(130 * time.Millisecond)
+	if a.navWidth != sidebarWidth {
+		t.Fatalf("侧栏未完整展开，最终宽度 %.1f", a.navWidth)
+	}
+}
+
+func TestOfflineRoomReturnsWithSelectedMotion(t *testing.T) {
+	for _, mode := range []string{"收拢到卡片", "展开侧栏"} {
+		t.Run(mode, func(t *testing.T) {
+			a := polishApp(t)
+			a.page, a.returnPage, a.focusMode = "player", "history", true
+			a.targetRoom = platforms.Room{Platform: platforms.Douyu, ID: "24422", Title: "未开播的房间"}
+			a.title, a.status = a.targetRoom.Title, "该斗鱼房间当前未直播"
+			a.library.Preferences.ClassicReturn = mode == "展开侧栏"
+			a.library.Preferences.ChatConnection = false
+			view := ui.NewTester(a.view, 1180, 780)
+			if err := view.Click("返回直播列表"); err != nil {
+				t.Fatal(err)
+			}
+			view.Frame()
+			view.Advance(100 * time.Millisecond)
+			if a.page != "history" {
+				t.Fatalf("返回到了 %q", a.page)
+			}
+			if a.library.Preferences.ClassicReturn {
+				if a.returnShrink || a.navWidth <= 0 || a.navWidth >= sidebarWidth {
+					t.Fatalf("未使用侧栏展开过渡，当前宽度 %.1f", a.navWidth)
+				}
+			} else if !a.returnShrink || a.returnFrame != nil || a.nowCardBounds.W < 100 {
+				t.Fatal("未使用无画面的收拢过渡", a.nowCardBounds)
+			}
+			view.Advance(returnCardCatchEnd)
+			if _, found := view.Find("未开播"); !found || a.returnShrink || a.navWidth != sidebarWidth {
+				t.Fatal("返回后未显示未开播状态或动效未结束")
+			}
+		})
 	}
 }
 
@@ -152,6 +292,46 @@ func TestClosingPlaybackCancelsSleepAndRemovesCard(t *testing.T) {
 	a.closePlayback()
 	if a.shown || a.targetRoom.ID != "" || !a.sleepUntil.IsZero() || a.page != "home" {
 		t.Fatal("关闭播放没有清理状态")
+	}
+}
+
+func TestCloseCardStopsImmediatelyAndLeavesOnlyFragments(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		a := polishApp(t)
+		a.page, a.shown = "history", true
+		a.targetRoom = platforms.Room{Platform: platforms.Douyu, ID: "1", Title: "测试直播", Anchor: "测试主播"}
+		view := ui.NewTester(a.view, 1180, 780)
+		view.SetPreferences(ui.Preferences{ReduceMotion: reduced, TextScale: 1})
+		card, found := view.Find("返回正在播放的直播间")
+		if !found {
+			t.Fatal("缺少直播卡片")
+		}
+		if err := view.Click("关闭当前直播"); err != nil {
+			t.Fatal(err)
+		}
+		if a.shown || a.targetRoom.ID != "" {
+			t.Fatal("播放等待碎裂完成才停止")
+		}
+		view.Advance(95 * time.Millisecond)
+		view.Frame()
+		if _, found := view.Find("关闭当前直播"); found {
+			t.Fatal("退出中的卡片仍可操作")
+		}
+		fragments := view.Image()
+		fragments.Pix = append([]byte(nil), fragments.Pix...)
+		view.Advance(cardShatterDuration)
+		final := view.Image()
+		var different int
+		for y := int(card.Y); y < int(card.Y+card.H+34); y++ {
+			for x := int(card.X); x < int(card.X+card.W); x++ {
+				if fragments.RGBAAt(x, y) != final.RGBAAt(x, y) {
+					different++
+				}
+			}
+		}
+		if reduced && different != 0 || !reduced && different < 40 {
+			t.Fatalf("关闭时碎片与减少动态效果设置不符：reduced=%t pixels=%d", reduced, different)
+		}
 	}
 }
 
@@ -275,10 +455,27 @@ func TestChatDividerFollowsPointerAcrossFrames(t *testing.T) {
 	tester.Press(r.X+4, y)
 	tester.Move(r.X-40, y)
 	tester.Move(r.X-80, y)
+	held := a.preferredChatWidth()
+	for range 8 {
+		tester.Advance(16 * time.Millisecond)
+		tester.Frame()
+		if a.preferredChatWidth() != held {
+			t.Fatal("指针停住时弹幕栏宽度仍在变化")
+		}
+	}
 	tester.Release(r.X-80, y)
 	tester.Advance(time.Second)
 	if a.preferredChatWidth() < 350 {
 		t.Fatal("连续拖动时宽度没有跟随指针", a.preferredChatWidth())
+	}
+	r, _ = tester.Find("调整弹幕栏宽度")
+	tester.Press(r.X+4, y)
+	tester.Move(r.X+200, y)
+	tester.Release(r.X+200, y)
+	tester.Advance(250 * time.Millisecond)
+	chat, _ := tester.Find("弹幕列表")
+	if a.preferredChatWidth() != 192 || chat.W != 192 {
+		t.Fatalf("未达到新的最窄宽度：偏好 %.1f，弹幕栏 %.1f", a.preferredChatWidth(), chat.W)
 	}
 }
 
@@ -309,7 +506,7 @@ func TestSmallWindowSidebarKeepsPlaybackAndSettingsReachable(t *testing.T) {
 func TestChatFooterAndItsSettingsAreRemoved(t *testing.T) {
 	a := polishApp(t)
 	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "1"}
-	tester := ui.NewTester(func(c *ui.Context) { a.chatView(c) }, 286, 700)
+	tester := ui.NewTester(func(c *ui.Context) { a.chatView(c, chatPanelWidth) }, 286, 700)
 	for _, label := range []string{"自动跟随", "暂停跟随", "前往官网发送弹幕", "显示跟随状态", "显示官网互动入口"} {
 		if _, ok := tester.Find(label); ok {
 			t.Fatal("仍保留已移除的底栏", label)

@@ -94,7 +94,7 @@ type app struct {
 	chatList                               ui.ListState
 	chatNext                               uint64
 	iconSet, iconDark                      bool
-	covers                                 map[string]*ui.Bitmap
+	covers                                 map[string]coverThumbnail
 	coverOrder                             []string
 	coverSlots                             chan struct{}
 	coverLoading                           map[string]bool
@@ -121,11 +121,18 @@ type app struct {
 	builtPage                              string
 	returnShrink                           bool
 	returnShrinkAt                         time.Time
+	returnFromOpen                         bool
+	returnWasBusy                          bool
+	returnFrame                            *ui.Bitmap
+	returnCapture                          *time.Timer
+	cardOpenAt                             time.Time
+	cardOpenFrom                           ui.Rect
+	cardOpenFrames                         uint64
+	cardShatter                            cardShatterState
 	playerNavWidth, playerChatWidth        float32
 	snap                                   bool
 	snapNav, snapChat                      float32
 	nowCardBounds                          ui.Rect
-	nowCardBottom                          float32
 	qualityOpen, sourceOpen                bool
 	danmakuOpen, volumeOpen                bool
 	chatSettingsOpen                       bool
@@ -243,7 +250,7 @@ func Run(version string) {
 	if a.page == string(platforms.FLive) {
 		a.platformLabel = platforms.FLive.Name()
 	}
-	a.covers = map[string]*ui.Bitmap{}
+	a.covers = map[string]coverThumbnail{}
 	a.coverSlots = make(chan struct{}, 4)
 	a.coverLoading = map[string]bool{}
 	a.categories = map[platforms.Platform][]platforms.Category{}
@@ -257,7 +264,7 @@ func Run(version string) {
 	mygo.App.OnDidBecomeActive(func() {
 		for _, window := range a.allPlaybackWindows() {
 			if window.surface != nil && !window.closing {
-				window.surface.Show(window.page == "player" && window.shown && !window.minimized && !window.audioOnly())
+				window.surface.Show(window.surfaceShouldShow())
 				if window.win != nil {
 					window.win.Invalidate()
 				}
@@ -284,7 +291,7 @@ func (a *app) start() {
 	a.win.OnResize(a.windowResized)
 	a.win.OnFocus(func() {
 		if a.surface != nil {
-			a.surface.Show(a.page == "player" && a.shown && !a.minimized && !a.audioOnly())
+			a.surface.Show(a.surfaceShouldShow())
 		}
 		if !a.companion && !a.win.IsFullScreen() {
 			a.win.SetTitle(a.win.Title())
@@ -300,7 +307,7 @@ func (a *app) start() {
 	a.win.OnRestore(func() {
 		a.minimized = false
 		if a.surface != nil {
-			a.surface.Show(a.page == "player" && a.shown && !a.audioOnly())
+			a.surface.Show(a.surfaceShouldShow())
 		}
 		a.win.Invalidate()
 		a.doPlayer(func(*player.Player) error { return nil }, nil)
@@ -470,9 +477,10 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 		a.resetChat("等待直播间连接")
 		a.clearFlyingChat()
 		a.shown = false
+		a.updateSystemPlayback()
 		a.firstFrameMS = 0
 		if a.targetRoom.Platform != p || a.targetRoom.ID != id {
-			a.targetRoom = platforms.Room{Platform: p, ID: id, Title: "直播间 " + id}
+			a.selectTargetRoom(platforms.Room{Platform: p, ID: id, Title: "直播间 " + id})
 		}
 		a.title = a.targetRoom.Title
 	}
@@ -513,7 +521,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 			if err != nil {
 				a.busy = false
 				a.status = err.Error()
-				if strings.Contains(err.Error(), "未开播") {
+				if roomOfflineStatus(err.Error()) {
 					a.removeOfflineRecommendation(p, id)
 				}
 				a.recordFailure("room", err.Error())
@@ -574,6 +582,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 					a.status = err.Error()
 					a.recordFailure("video", err.Error())
 					a.shown = false
+					a.updateSystemPlayback()
 					a.scheduleReconnect()
 					return
 				}
@@ -652,6 +661,9 @@ func (a *app) command(args ...string) {
 	})
 }
 func (a *app) stop() {
+	a.cancelReturnCapture()
+	a.cardOpenAt = time.Time{}
+	a.returnFrame = nil
 	a.stopRecording()
 	a.generation++
 	if a.resolveCancel != nil {
@@ -679,7 +691,7 @@ func (a *app) acceptStats(stats player.Stats) {
 			return
 		}
 		if a.surface != nil {
-			a.surface.Show(a.page == "player" && a.shown && !a.minimized && !a.audioOnly())
+			a.surface.Show(a.surfaceShouldShow())
 		}
 		wasPaused := a.stats.Paused
 		a.stats = stats

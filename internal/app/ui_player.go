@@ -27,6 +27,14 @@ const chatPanelWidth float32 = 286
 const watchFrameInset float32 = 4
 const watchFrameBorder float32 = .5
 const watchFrameRadius float32 = 14
+const transportBottom float32 = 22
+
+func transportHeight(width float32) float32 {
+	if width < 600 {
+		return 90
+	}
+	return 52
+}
 
 type watchLayout struct {
 	Frame     ui.Rect
@@ -45,10 +53,22 @@ func watchGeometry(width, height, header, sidebar, chat float32) watchLayout {
 
 func (a *app) contentView(c *ui.Context) {
 	full := !a.snap && a.win != nil && a.win.IsFullScreen()
+	header, sidebar := float32(0), float32(0)
+	if !full {
+		header = watchHeaderHeight
+		if a.navMeasured {
+			sidebar = a.navWidth
+		} else if !a.focusMode {
+			sidebar = sidebarWidth
+		}
+	}
+	if a.snap {
+		sidebar = a.snapNav
+	}
 	root := ui.Column(c.Key("watch-layout")).Fill()
 	target := float32(0)
 	if a.chatVisible() {
-		target = a.chatWidth(c)
+		target = a.chatWidth(c, sidebar)
 	}
 	duration := 220 * time.Millisecond
 	if a.library != nil && a.library.Preferences.FollowVideo {
@@ -64,19 +84,6 @@ func (a *app) contentView(c *ui.Context) {
 	} else {
 		chatWidth = root.AnimateTo("chat-width", target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
 	}
-	header, sidebar := float32(0), float32(0)
-	if !full {
-		header = watchHeaderHeight
-	}
-	if !full && !a.focusMode {
-		sidebar = sidebarWidth
-	}
-	if !full && a.navMeasured {
-		sidebar = a.navWidth
-	}
-	if a.snap {
-		sidebar = a.snapNav
-	}
 	if !a.snap && a.page == "player" {
 		// 返回动画的播放页快照沿用离开时的布局，避免侧栏和聊天栏重新滑入。
 		a.playerNavWidth, a.playerChatWidth = sidebar, chatWidth
@@ -87,7 +94,7 @@ func (a *app) contentView(c *ui.Context) {
 	if !full {
 		inset, edge, radius = watchFrameInset, watchFrameBorder, watchFrameRadius
 	}
-	if a.surface != nil {
+	if a.surface != nil && (!a.snap || a.cardOpening(c)) {
 		a.surface.SetCorners(float64(max(0, radius-edge)), chatWidth < .1)
 	}
 	p := colors(c.Theme())
@@ -113,11 +120,17 @@ func (a *app) contentView(c *ui.Context) {
 				ui.Column(c).Fill().Padding(edge).Radius(radius).Clip().Children(func() {
 					ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 						a.videoView(c, layout.Video)
-						ui.Box(c.Key("chat-reveal")).Width(chatWidth).Shrink(0).FillHeight().Radius(0, max(0, radius-edge), max(0, radius-edge), 0).Clip().Hidden(chatWidth < .1).Children(func() { a.chatView(c) })
+						ui.Box(c.Key("chat-reveal")).Width(chatWidth).Shrink(0).FillHeight().Radius(0, max(0, radius-edge), max(0, radius-edge), 0).Clip().Hidden(chatWidth < .1).Children(func() { a.chatView(c, chatWidth) })
 					})
 				})
 				if chatWidth > 0 {
 					a.chatResizeHandle(c, chatWidth, edge)
+				}
+				if chatWidth < .1 && a.connectionPending(false) {
+					ui.Box(c.Key("video-connection-layer")).Absolute().Top(12).Right(12).
+						Bottom(transportBottom + transportHeight(layout.Video.W) + 12).
+						Width(min(280, max(1, layout.Video.W-24))).Justify(ui.End).PassThrough().
+						Children(func() { a.connectionCard(c) })
 				}
 				if !full {
 					ui.Box(c.Key("watch-frame-edge")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Radius(radius).PassThrough().Role(ui.RoleNone).Draw(func(painter *ui.Painter, r ui.Rect) {
@@ -164,6 +177,15 @@ func (a *app) watchChrome(c *ui.Context) ui.Color {
 	return colors(c.Theme()).sidebar
 }
 
+const watchNavigationWidth, watchTitleGap float32 = 65, 12
+
+func watchHeaderInset(c *ui.Context, sidebar float32) float32 {
+	if runtime.GOOS == "windows" {
+		return titlebarLeft(c)
+	}
+	return max(titlebarLeft(c), sidebar+watchFrameInset+watchFrameBorder-watchNavigationWidth-watchTitleGap)
+}
+
 func (a *app) watchHeader(c *ui.Context) {
 	p := colors(c.Theme())
 	sidebar := sidebarWidth
@@ -176,21 +198,25 @@ func (a *app) watchHeader(c *ui.Context) {
 	if a.snap {
 		sidebar = a.snapNav
 	}
-	const navigationWidth, titleGap float32 = 65, 12
-	titleEdge := sidebar + watchFrameInset + watchFrameBorder
-	inset := max(titlebarLeft(c), titleEdge-navigationWidth-titleGap)
-	gap := titleGap
+	inset := watchHeaderInset(c, sidebar)
+	gap := watchTitleGap
 	if runtime.GOOS == "windows" {
 		// 没有红绿灯占用左上角，导航按钮从左边缘开始；标题仍对齐播放器左边线。
-		inset = titlebarLeft(c)
-		gap = max(titleGap, titleEdge-inset-navigationWidth)
+		gap = max(watchTitleGap, sidebar+watchFrameInset+watchFrameBorder-inset-watchNavigationWidth)
 	}
 	ui.Row(c).FillWidth().Height(watchHeaderHeight).Shrink(0).Padding(0, titlebarRight(c, 16), 0, inset).AlignItems(ui.Center).Background(a.watchChrome(c)).DragWindow().Children(func() {
-		ui.Row(c).Width(navigationWidth).Shrink(0).Gap(5).AlignItems(ui.Center).Children(func() {
-			if iconButton(c.Key("watch-back"), iconBack, "返回列表 · Esc").Clicked() {
-				a.backToBrowse()
+		ui.Row(c).Width(watchNavigationWidth).Shrink(0).Gap(5).AlignItems(ui.Center).Children(func() {
+			back := iconButton(c.Key("watch-back"), iconBack, "返回列表 · Esc")
+			if a.snap {
+				back.Label("").Tooltip("").Role(ui.RoleNone).PassThrough()
+			} else if back.Clicked() {
+				a.backToBrowse(c)
 			}
-			if iconButton(c.Key("watch-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", !a.focusMode).Clicked() {
+			navOpen := !a.focusMode
+			if a.snap {
+				navOpen = a.snapNav > .1
+			}
+			if iconButton(c.Key("watch-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", navOpen).Clicked() {
 				a.focusMode = !a.focusMode
 				a.fitWindowToVideo(false)
 			}
@@ -208,7 +234,7 @@ func (a *app) watchHeader(c *ui.Context) {
 				ui.Text(c, strings.Join(meta, " · ")).FontSize(10.5).TextColor(p.muted).SingleLine()
 			}
 		})
-		if a.busy {
+		if a.connectionBusy() {
 			ui.Spinner(c).Size(12, 12).MarginX(6)
 		}
 		if a.recordingPath != "" {
@@ -247,7 +273,7 @@ func (a *app) watchHeader(c *ui.Context) {
 			m.Separator()
 			if m.Item("结束观看").Chosen() {
 				a.stop()
-				a.backToBrowse()
+				a.backToBrowse(c)
 			}
 		})
 		if iconButton(c.Key("watch-settings"), iconSettings, shortcutLabel("设置 · ⌘,")).Clicked() {
@@ -257,12 +283,17 @@ func (a *app) watchHeader(c *ui.Context) {
 }
 
 func (a *app) videoView(c *ui.Context, frame ui.Rect) {
-	a.takeVideoFrame()
-	video := ui.Box(c.Key("video")).Width(frame.W).FillHeight().Shrink(0).MinHeight(0).Role(ui.RoleGroup).Focusable().FocusRing(false).Bind(&a.transportHandle).Label("直播画面，双击切换全屏")
+	if !a.snap {
+		a.takeVideoFrame()
+	}
+	video := ui.Box(c.Key("video")).Width(frame.W).FillHeight().Shrink(0).MinHeight(0).Role(ui.RoleGroup).Focusable().FocusRing(false).Label("直播画面，双击切换全屏")
+	if !a.snap {
+		video.Bind(&a.transportHandle)
+	}
 	if a.companion {
 		video.FillWidth()
 	}
-	if runtime.GOOS == "windows" || !a.shown || a.audioOnly() {
+	if runtime.GOOS == "windows" || a.snap || a.audioOnly() || a.waitingForVideo() {
 		video.Background(ui.Hex("#0b0b0e"))
 	}
 	width := frame.W
@@ -304,8 +335,20 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 		}
 	}
 	video.Children(func() {
-		if a.videoBitmap != nil && !a.audioOnly() {
-			ui.Image(c, a.videoBitmap).Absolute().Left(0).Top(0).Width(frame.W).Height(frame.H).Fit(ui.FillBox).Role(ui.RoleNone).PassThrough()
+		bitmap, fit := a.videoBitmap, ui.FillBox
+		hasImage := !a.waitingForVideo()
+		if a.returnFrame != nil && (a.snap || !a.cardOpenAt.IsZero()) {
+			bitmap, fit = a.returnFrame, ui.Contain
+			hasImage = true
+			switch a.fitMode {
+			case "填满":
+				fit = ui.Cover
+			case "拉伸":
+				fit = ui.FillBox
+			}
+		}
+		if hasImage && bitmap != nil && !a.audioOnly() {
+			ui.Image(c, bitmap).Absolute().Left(0).Top(0).Width(frame.W).Height(frame.H).Fit(fit).Role(ui.RoleNone).PassThrough()
 		}
 		a.barrageView(c, frame.W, frame.H)
 		if a.audioOnly() {
@@ -343,13 +386,19 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 		a.controlsUntil = c.Now().Add(2800 * time.Millisecond)
 		c.After(2800 * time.Millisecond)
 	}
-	if a.surface != nil {
+	if a.surface != nil && (!a.snap || a.cardOpening(c)) {
 		_, height := c.Size()
 		if !a.surface.SetBounds(float64(frame.X), float64(frame.Y), float64(frame.W), float64(frame.H), float64(height)) {
 			c.After(12 * time.Millisecond)
 		}
-		a.surface.Show(a.shown && !a.minimized && !a.audioOnly())
+		a.surface.Show(a.surfaceShouldShow())
 	}
+}
+
+func (a *app) surfaceShouldShow() bool {
+	inPlayer := a.page == "player" || !a.cardOpenAt.IsZero()
+	handoff := a.returnShrink && a.returnShrinkAt.IsZero()
+	return (inPlayer || handoff) && a.shown && !a.minimized && !a.audioOnly()
 }
 
 func (a *app) mediaButton(c *ui.Context, icon *ui.SVG, label string, active ...bool) ui.Element {
@@ -407,11 +456,7 @@ func (a *app) transportView(c *ui.Context, width, opacity float32) {
 	}
 	compact := width < 600
 	panelWidth := min(float32(724), width-36)
-	h := float32(52)
-	if compact {
-		h = 90
-	}
-	panel := ui.Column(c.Key("embedded-controls")).Absolute().Left(max(12, (width-panelWidth)/2)).Bottom(22).Width(panelWidth).Height(h).Padding(9, 10).Radius(15).Background(ui.RGBA(27, 28, 32, .87)).Border(1, ui.RGBA(255, 255, 255, .14)).Shadow(0, 6, 22, 0, ui.RGBA(0, 0, 0, .24)).Opacity(opacity).Hidden(opacity < .005)
+	panel := ui.Column(c.Key("embedded-controls")).Absolute().Left(max(12, (width-panelWidth)/2)).Bottom(transportBottom).Width(panelWidth).Height(transportHeight(width)).Padding(9, 10).Radius(15).Background(ui.RGBA(27, 28, 32, .87)).Border(1, ui.RGBA(255, 255, 255, .14)).Shadow(0, 6, 22, 0, ui.RGBA(0, 0, 0, .24)).Opacity(opacity).Hidden(opacity < .005)
 	if panel.Hovered() || a.controlsKeyboard && panel.FocusWithin() {
 		a.controlsHeld = true
 		a.controlsUntil = c.Now().Add(2800 * time.Millisecond)
@@ -577,12 +622,14 @@ func (a *app) mediaPopover(c *ui.Context, anchor ui.Element, open *bool, width f
 func popupChoice(c *ui.Context, label, detail string, selected bool) ui.Element {
 	p := colors(c.Theme())
 	b := ui.ButtonBase(c).Height(34).PaddingX(9).Gap(10).Radius(7).AlignItems(ui.Center).Label(label)
+	bg := ui.Transparent
 	if b.Hovered() || b.FocusVisible() {
-		b.Background(p.hover)
+		bg = p.hover
 	}
-	if selected {
-		b.Background(p.selected)
+	if b.Pressed() || selected {
+		bg = p.selected
 	}
+	b.Background(b.AnimateColor("choice-background", bg, ui.Animation{Duration: 100 * time.Millisecond}))
 	b.Children(func() {
 		ui.Text(c, label).FontSize(12).TextColor(p.text).Grow(1).MinWidth(0).SingleLine()
 		if detail != "" {
@@ -695,20 +742,25 @@ func (a *app) setFit(mode string) {
 }
 
 func (a *app) togglePause() {
+	a.setPlaybackPaused(!a.stats.Paused, nil)
+}
+
+func (a *app) setPlaybackPaused(paused bool, recoverPlayback func()) {
 	if !a.shown || a.player == nil {
 		return
 	}
-	if !a.stats.Paused {
+	if paused {
 		a.stopRecording()
 	}
 	a.pausedOnLeave = false
 	a.revealControls()
-	a.stats.Paused = !a.stats.Paused
+	a.stats.Paused = paused
 	a.updateSystemPlayback()
 	value := "no"
 	if a.stats.Paused {
 		value = "yes"
 	}
+	generation := a.generation
 	var next player.Stats
 	a.doPlayer(func(p *player.Player) error {
 		if err := p.Command("set", "pause", value); err != nil {
@@ -717,8 +769,14 @@ func (a *app) togglePause() {
 		next = p.Stats()
 		return nil
 	}, func(err error) {
+		if a.generation != generation {
+			return
+		}
 		if err != nil {
 			a.toast = err.Error()
+			if recoverPlayback != nil {
+				recoverPlayback()
+			}
 			return
 		}
 		a.acceptStats(next)

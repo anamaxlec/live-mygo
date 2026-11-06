@@ -60,7 +60,7 @@ func TestFullSettingsUseOneTextColumnAcrossCategories(t *testing.T) {
 				{settingsPlayback, 0, []string{"默认画质", "播放音量", "离开直播间时暂停", "窗口跟随画面比例", "斗鱼弹幕兼容连接"}, nil},
 				{settingsBarrage, 0, []string{"显示画面弹幕", "字体", "字重", "字号", "文字颜色", "描边", "不透明度"}, nil},
 				{settingsBarrage, 2, []string{"显示画面弹幕", "过滤画面重复弹幕", "启用屏蔽规则", "过滤重复消息", "关键词与用户屏蔽"}, nil},
-				{settingsChat, 0, []string{"显示弹幕列表", "列表样式", "文字大小", "显示接收时间", "显示粉丝牌", "显示连接面板", "过滤重复消息", "关键词与用户屏蔽"}, nil},
+				{settingsChat, 0, []string{"显示弹幕列表", "列表样式", "文字大小", "显示接收时间", "显示粉丝牌", "显示弹幕连接提示", "过滤重复消息", "关键词与用户屏蔽"}, nil},
 				{settingsAccounts, 0, []string{"来源"}, []string{"重新登录哔哩哔哩", "登录斗鱼", "登录抖音", "登录企鹅体育", "保存导入 Cookie"}},
 				{settingsAbout, 0, []string{"更新通道", "应用更新", "播放诊断"}, []string{"检查软件更新", "导出诊断报告"}},
 			} {

@@ -74,7 +74,7 @@ func (a *app) chatSettingsContent(c *ui.Context, full bool) {
 		preferenceSwitch(c, full, "显示粉丝牌", prefs.ChatBadges, func(v bool) { next := a.library.Preferences; next.ChatBadges = v; a.savePreferences(next) })
 	}
 	connection := func() {
-		preferenceSwitch(c, full, "显示连接面板", prefs.ChatConnection, func(v bool) { next := a.library.Preferences; next.ChatConnection = v; a.savePreferences(next) })
+		preferenceSwitch(c, full, "显示弹幕连接提示", prefs.ChatConnection, func(v bool) { next := a.library.Preferences; next.ChatConnection = v; a.savePreferences(next) })
 	}
 	filter := func() {
 		preferenceSwitch(c, full, "屏蔽规则", prefs.FilterEnabled, func(v bool) {

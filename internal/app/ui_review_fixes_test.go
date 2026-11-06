@@ -79,7 +79,7 @@ func TestFailedCoverCanRecoverWithoutPermanentLoading(t *testing.T) {
 		w.Write(imageData.Bytes())
 	}))
 	defer server.Close()
-	a := &app{coverLoading: map[string]bool{server.URL: true}, covers: map[string]*ui.Bitmap{}}
+	a := &app{coverLoading: map[string]bool{server.URL: true}, covers: map[string]coverThumbnail{}}
 	img, err := downloadCover(context.Background(), server.Client(), server.URL)
 	if err == nil {
 		t.Fatal("错误状态被当成图片")
@@ -93,7 +93,7 @@ func TestFailedCoverCanRecoverWithoutPermanentLoading(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.finishCover(server.URL, img)
-	if a.covers[server.URL] == nil || !a.coverRetry[server.URL].IsZero() {
+	if a.covers[server.URL].bitmap == nil || !a.coverRetry[server.URL].IsZero() {
 		t.Fatal("图片无法恢复")
 	}
 }

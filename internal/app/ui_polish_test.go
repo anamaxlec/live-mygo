@@ -14,7 +14,7 @@ import (
 
 func polishApp(t *testing.T) *app {
 	s, _ := library.Load(filepath.Join(t.TempDir(), "library.json"))
-	return &app{library: s, page: "bilibili", player: &player.Player{}, playerOps: make(chan func(*player.Player), 20), covers: map[string]*ui.Bitmap{}, coverLoading: map[string]bool{}, categories: map[platforms.Platform][]platforms.Category{}, categoryLoading: map[platforms.Platform]bool{}}
+	return &app{library: s, page: "bilibili", player: &player.Player{}, playerOps: make(chan func(*player.Player), 20), covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{}, categories: map[platforms.Platform][]platforms.Category{}, categoryLoading: map[platforms.Platform]bool{}}
 }
 func TestDiscoverySeparatesFamiliarRoomsAndRecommendations(t *testing.T) {
 	a := polishApp(t)
@@ -84,7 +84,7 @@ func TestDiscoveryShowsLiveGroupWhenMetadataArrives(t *testing.T) {
 func TestCompactChatUsesLessSpaceAndKeepsSuperChatEmphasis(t *testing.T) {
 	a := polishApp(t)
 	a.chatMessages = []platforms.ChatMessage{{ID: 1, User: "观众", Text: "紧凑消息"}, {ID: 2, User: "支持者", Text: "支持主播", Kind: "superchat", Price: 30}}
-	tester := ui.NewTester(func(c *ui.Context) { a.chatView(c) }, 286, 700)
+	tester := ui.NewTester(func(c *ui.Context) { a.chatView(c, chatPanelWidth) }, 286, 700)
 	bubble, ok := tester.Find("观众：紧凑消息")
 	if !ok {
 		t.Fatal("气泡消息未显示")

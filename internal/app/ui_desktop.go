@@ -30,6 +30,7 @@ func (a *app) view(c *ui.Context) {
 		a.pendingPage = ""
 		a.openPage(page)
 	}
+	a.advanceCardOpen(c)
 	a.builtPage = a.page
 	if a.win != nil && (!a.iconSet || a.iconDark != c.Theme().Dark) {
 		a.iconSet = true
@@ -57,6 +58,10 @@ func (a *app) view(c *ui.Context) {
 	p := colors(c.Theme())
 	if c.Vibrancy() || a.page == "player" {
 		c.Root().Background(ui.Transparent)
+	}
+	if a.page != "player" && (a.returnShrink || !a.cardOpenAt.IsZero()) {
+		// 浏览页在变形层下方，盖住还在交接的原生视频层。
+		c.Root().Background(p.sidebar)
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() {
 		if a.page == "player" {
@@ -87,11 +92,14 @@ func (a *app) view(c *ui.Context) {
 			a.loadCatalog(1)
 		}
 	})
+	openingRoom := a.page != "player" && !a.cardOpenAt.IsZero()
 	if !a.searchHandle.Focused(c) && a.page == "player" {
 		c.OnShortcut(0, ui.KeySpace, a.togglePause)
 		c.OnShortcut(0, ui.KeyK, func() { a.revealControls(); a.focusControls = true; a.controlsKeyboard = true })
 		c.OnShortcut(0, ui.KeyM, a.toggleMute)
 		c.OnShortcut(0, ui.KeyD, func() { a.toggleBarrage(); a.revealControls() })
+	}
+	if openingRoom || !a.searchHandle.Focused(c) && a.page == "player" {
 		c.OnShortcut(0, ui.KeyEscape, func() {
 			if a.companion {
 				a.toggleCompanion()
@@ -100,10 +108,10 @@ func (a *app) view(c *ui.Context) {
 			if a.playerMenuOpen() {
 				a.closePlayerMenus()
 				a.revealControls()
-			} else if a.win.IsFullScreen() {
+			} else if a.win != nil && a.win.IsFullScreen() {
 				a.win.SetFullScreen(false)
 			} else {
-				a.backToBrowse()
+				a.backToBrowse(c)
 			}
 		})
 	}
@@ -133,25 +141,21 @@ func (a *app) view(c *ui.Context) {
 	a.navWidth = desktop.AnimateTo(fmt.Sprintf("navigation-width-%d", a.navReturn), target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
 	a.navMeasured = true
 	desktop.Children(func() {
-		side := ui.Column(c.Key("navigation")).Width(a.navWidth).Shrink(0).FillHeight().Clip().Hidden(a.navWidth < .1)
-		if !c.Vibrancy() || a.customAppearance() {
-			side.Background(p.sidebar)
-		}
-		side.Children(func() { ui.Box(c).Width(sidebarWidth).FillHeight().Shrink(0).Children(func() { a.sidebar(c) }) })
+		a.desktopSidebar(c, a.navWidth, p)
 		edge := float32(0)
-		if a.navWidth > .1 && a.page != "player" {
+		if a.navWidth > .1 && a.builtPage != "player" {
 			edge = 1
 		}
 		content := ui.Box(c.Key("content")).Grow(1).MinWidth(0).BorderWidth(0, 0, 0, edge).BorderColor(p.line)
-		if a.page != "player" {
+		if a.builtPage != "player" {
 			content.Background(p.bg)
 		}
 		content.Children(func() {
-			if a.page == "player" {
+			if a.builtPage == "player" {
 				a.contentView(c)
 			} else {
-				if a.surface != nil {
-					a.surface.Show(false)
+				if a.surface != nil && a.cardOpenAt.IsZero() {
+					a.surface.Show(a.surfaceShouldShow())
 				}
 				enter := &ui.Motion{Opacity: .25}
 				if a.skipBrowseEnter {
@@ -163,7 +167,7 @@ func (a *app) view(c *ui.Context) {
 			}
 		})
 	})
-	if a.page == "player" {
+	if a.builtPage == "player" {
 		// 标题栏跨过侧栏边界，导航按钮放在标题左侧，不挤占播放器的对齐线。
 		ui.Box(c.Key("watch-header-overlay")).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
 	} else {
@@ -172,6 +176,16 @@ func (a *app) view(c *ui.Context) {
 		}
 	}
 	a.returnShrinkView(c)
+	a.cardOpenView(c)
+	a.shatterCardView(c)
+}
+
+func (a *app) desktopSidebar(c *ui.Context, width float32, p palette) {
+	side := ui.Column(c.Key("navigation")).Width(width).Shrink(0).FillHeight().Clip().Hidden(width < .1)
+	if !c.Vibrancy() || a.customAppearance() || a.snap {
+		side.Background(p.sidebar)
+	}
+	side.Children(func() { ui.Box(c).Width(sidebarWidth).FillHeight().Shrink(0).Children(func() { a.sidebar(c) }) })
 }
 
 func (a *app) sidebar(c *ui.Context) {
@@ -182,7 +196,11 @@ func (a *app) sidebar(c *ui.Context) {
 			ui.Box(c).Size(20, 20).Shrink(0).Center().Children(func() {
 				ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.muted)
 			})
-			if ui.TextInputBase(c, &a.roomInput).Bind(&a.searchHandle).Placeholder("搜索直播").Label("搜索主播、房间号或直播间链接").Tooltip(shortcutLabel("输入主播名搜索，或粘贴直播间链接 · ⌘F")).FontSize(12.5).Height(30).Grow(1).Submitted() {
+			search := ui.TextInputBase(c, &a.roomInput).Placeholder("搜索直播").Label("搜索主播、房间号或直播间链接").Tooltip(shortcutLabel("输入主播名搜索，或粘贴直播间链接 · ⌘F")).FontSize(12.5).Height(30).Grow(1)
+			if !a.snap {
+				search.Bind(&a.searchHandle)
+			}
+			if search.Submitted() {
 				a.submitSearch()
 			}
 			if a.roomInput != "" && iconButton(c.Key("clear-search"), iconClose, "清除搜索").Size(20, 20).Clicked() {
@@ -240,14 +258,15 @@ func (a *app) navItem(c *ui.Context, id, label string, icon *ui.SVG, count int) 
 	b := ui.ButtonBase(c.Key(id)).Height(35).PaddingX(8).Gap(10).Radius(8).AlignItems(ui.Center).Label(label)
 	bg := ui.Transparent
 	ink := p.muted
-	if a.page == id {
+	active := a.page == id && !a.snap
+	if active {
 		ink = p.accent
 	} else if b.Hovered() {
 		bg = p.hover
 	}
 	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
 	b.Children(func() {
-		navigationSelection(c, "main", a.page == id, p)
+		navigationSelection(c, "main", active, p)
 		ui.Row(c).Absolute().Fill().PaddingX(8).Gap(10).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(20, 20).Shrink(0).Center().Children(func() {
 				size := float32(17)
@@ -282,6 +301,9 @@ func (a *app) playbackState() string {
 		return "正在连接视频"
 	}
 	if !a.shown || a.stats.Idle {
+		if !a.shown && roomOfflineStatus(a.status) {
+			return "未开播"
+		}
 		return "连接已中断"
 	}
 	if a.stats.Paused {
@@ -298,12 +320,19 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 	if a.stream != nil {
 		r = a.stream.Room
 	}
-	card := ui.Column(c.Key("now-playing-card")).Padding(10).Gap(9).Radius(11).Background(p.hover).Border(1, p.line)
-	if bounds := card.Bounds(); bounds.W > 1 && bounds.H > 1 {
-		// 返回动画收束到上一帧卡片的实际位置，窗口高度变化时只重算离底距离。
-		a.nowCardBounds = bounds
-		if _, height := c.Size(); height > bounds.Y+bounds.H {
-			a.nowCardBottom = height - bounds.Y - bounds.H
+	card := nowPlayingCardPanel(c.Key("now-playing-card"), p)
+	if a.returnShrink && !a.snap && a.builtPage != "player" {
+		// 浏览页先绘制。变形层读取这一帧卡片完成布局后的边界。
+		card.Draw(func(_ *ui.Painter, bounds ui.Rect) { a.nowCardBounds = bounds })
+		if !c.Preferences().ReduceMotion && !a.classicReturn() && !a.returnShrinkAt.IsZero() {
+			elapsed := c.Now().Sub(a.returnShrinkAt)
+			if elapsed < returnCardCatchStart {
+				c.After(returnCardCatchStart - elapsed)
+			} else if elapsed < returnCardCatchEnd {
+				scale := returnCardScale(elapsed)
+				card.Scale(scale, scale)
+				c.After(min(16*time.Millisecond, returnCardCatchEnd-elapsed))
+			}
 		}
 	}
 	card.Children(func() {
@@ -312,27 +341,21 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 			a.channelCardIdentity(c, r)
 		})
 		if b.Clicked() {
-			a.rememberHomeCatalog()
-			a.returnPage = a.page
-			a.page = "player"
-			a.focusMode = true
-			a.revealControls()
-			if a.pausedOnLeave {
-				a.pausedOnLeave = false
-				if a.shown && a.stats.Paused {
-					a.togglePause()
-				}
-			}
-			a.fitWindowToVideo(true)
+			a.openFromCard(c, card.Bounds())
 		}
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			dot := p.faint
 			if a.shown && !a.stats.Paused && !a.busy && (a.decodedMS > 0 || a.playStarted.IsZero()) {
 				dot = ui.Hex("#5ba789")
 			}
+			status := a.playbackState()
 			ui.Box(c).Size(4, 4).Radius(2).Background(dot)
-			ui.Text(c, a.playbackState()).FontSize(10).TextColor(p.muted).Grow(1)
+			ui.Text(c, status).FontSize(10).TextColor(p.muted).Grow(1)
 			if iconButton(c.Key("stop-current"), iconClose, "关闭当前直播").Size(24, 24).Clicked() {
+				if !c.Preferences().ReduceMotion {
+					a.cardShatter = cardShatterState{start: c.Now(), bounds: card.Bounds(), room: r, status: status, dot: dot, paused: a.stats.Paused, muted: a.stats.Muted || a.volume == 0}
+					c.After(time.Millisecond)
+				}
 				a.closePlayback()
 			}
 			icon, label := iconPause, "暂停当前直播"
@@ -360,6 +383,10 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 	})
 }
 
+func nowPlayingCardPanel(c *ui.Context, p palette) ui.Element {
+	return ui.Column(c).Padding(10).Gap(9).Radius(11).Background(p.hover).Border(1, p.line)
+}
+
 func (a *app) openPage(page string) {
 	if page == string(platforms.FLive) && !a.raceMenuUnlocked() {
 		return
@@ -373,6 +400,9 @@ func (a *app) openPage(page string) {
 	if page == a.page && a.catalogQuery == "" {
 		return
 	}
+	a.cancelReturnCapture()
+	a.returnShrink = false
+	a.returnShrinkAt = time.Time{}
 	a.rememberHomeCatalog()
 	if a.catalogCancel != nil {
 		a.catalogCancel()
@@ -381,6 +411,7 @@ func (a *app) openPage(page string) {
 	a.catalogGeneration++
 	a.catalogLoading = false
 	a.leavePlayer()
+	a.cardOpenAt = time.Time{}
 	a.page = page
 	// 首页和收藏页都优先展示关注的开播状态；冷却时间避免每次切页都请求。
 	a.refreshFavorites(false)
@@ -415,14 +446,61 @@ func (a *app) openPage(page string) {
 	}
 }
 
-func (a *app) backToBrowse() {
-	if a.win != nil {
+func (a *app) cancelReturnCapture() {
+	if a.returnCapture != nil {
+		a.returnCapture.Stop()
+		a.returnCapture = nil
+	}
+}
+
+func (a *app) finishReturnCapture(timer *time.Timer, generation int, frame *ui.Bitmap) {
+	if a.returnCapture != timer {
+		return
+	}
+	a.cancelReturnCapture()
+	if a.closing || a.page != "player" || a.companion || a.win != nil && a.win.IsFullScreen() {
+		return
+	}
+	// 同房间重连可能在抓帧时切换会话。仍然返回，旧会话的帧丢弃。
+	if a.generation != generation {
+		frame = nil
+	}
+	a.finishBackToBrowse(frame)
+}
+
+func (a *app) backToBrowse(c *ui.Context) {
+	if a.page != "player" {
+		if !a.cardOpenAt.IsZero() {
+			a.reverseCardOpen(c)
+		}
+		return
+	}
+	if !a.classicReturn() && a.captureReturnFrame() {
+		return
+	}
+	a.finishBackToBrowse(nil)
+}
+
+func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
+	a.cancelReturnCapture()
+	alreadyBrowsing := a.page != "player"
+	hasRoom := a.stream != nil || a.targetRoom.ID != ""
+	a.returnShrink = !a.classicReturn() && hasRoom
+	a.returnWasBusy = a.returnShrink && a.busy
+	a.returnFromOpen = false
+	if !a.returnShrink {
 		a.normalMinimum()
 	}
 	a.leavePlayer()
+	a.cardOpenAt = time.Time{}
 	a.skipBrowseEnter = true
-	a.returnShrink = true
+	if !a.returnShrink || a.audioOnly() {
+		a.returnFrame = nil
+	} else if frame != nil {
+		a.returnFrame = frame
+	}
 	a.returnShrinkAt = time.Time{}
+	a.nowCardBounds = ui.Rect{}
 	page := a.returnPage
 	if page == "" || page == "player" {
 		page = string(a.platform())
@@ -430,8 +508,13 @@ func (a *app) backToBrowse() {
 	a.page = page
 	// 从播放页返回浏览时恢复侧栏，搜索框和导航不必再靠左上角开关找回。
 	a.focusMode = false
-	// 自动返回时直接恢复浏览布局，手动开关侧栏才做宽度过渡。
-	a.navReturn++
+	// 只有收拢层接管过渡时才跳过侧栏宽度动画。
+	if a.returnShrink && !alreadyBrowsing {
+		a.navReturn++
+	}
+	if alreadyBrowsing {
+		return
+	}
 	if page == "home" && !a.homeCatalog.updated.IsZero() {
 		if !a.restoreHomeCatalog() && !a.catalogLoading {
 			a.loadCatalog(1)
@@ -441,80 +524,6 @@ func (a *app) backToBrowse() {
 		a.loadCatalog(1)
 	}
 	a.refreshFavorites(false)
-}
-
-// returnShrinkView 把整个播放页当成一张纸收进左下角的正在播放卡片。
-// 快照层用离开时的布局重建播放页，因此返回的第一帧和播放页完全一致；
-// 浏览页已经在下面铺好，随快照缩小逐渐露出来。
-func (a *app) returnShrinkView(c *ui.Context) {
-	if !a.returnShrink {
-		return
-	}
-	if a.page == "player" || a.audioOnly() || (a.stream == nil && a.targetRoom.ID == "") {
-		a.returnShrink = false
-		a.returnShrinkAt = time.Time{}
-		return
-	}
-	if a.returnShrinkAt.IsZero() {
-		// 点击返回的那一帧还是播放页，等下一帧浏览页真正建好再开始。
-		if a.builtPage == "player" {
-			c.After(16 * time.Millisecond)
-			return
-		}
-		a.returnShrinkAt = c.Now()
-	}
-	reduced := c.Preferences().ReduceMotion
-	duration := 460 * time.Millisecond
-	if reduced {
-		duration = 180 * time.Millisecond
-	}
-	elapsed := c.Now().Sub(a.returnShrinkAt)
-	if elapsed < 0 || elapsed >= duration {
-		a.returnShrink = false
-		a.returnShrinkAt = time.Time{}
-		return
-	}
-	t := float32(elapsed) / float32(duration)
-	width, height := c.Size()
-	end := a.nowCardBounds
-	if end.W < 8 || end.H < 8 {
-		end = ui.Rect{X: 14, Y: height - 195, W: 204, H: 95}
-	} else {
-		end.Y = height - a.nowCardBottom - end.H
-	}
-	scale := min(1, max(.02, end.W/width))
-	endX := end.X + end.W/2 - width*scale/2
-	endY := end.Y + end.H/2 - height*scale/2
-	progress := float32(0)
-	if !reduced {
-		progress = ui.CubicBezier(.36, .04, .16, 1)(min(1, max(0, (t-.02)/.86)))
-	}
-	sheetScale := 1 + (scale-1)*progress
-	opacity := float32(1)
-	if reduced {
-		opacity = 1 - ui.EaseOut(t)
-	} else if t > .56 {
-		opacity = 1 - ui.EaseInOut(min(1, (t-.56)/.38))
-	}
-	if opacity <= .004 {
-		c.After(16 * time.Millisecond)
-		return
-	}
-	a.snap, a.snapNav, a.snapChat = true, a.playerNavWidth, a.playerChatWidth
-	p := colors(c.Theme())
-	ui.Overlay(c, func() {
-		sheet := ui.Box(c).Absolute().Left(endX*progress).Top(endY*progress).Width(width).Height(height).
-			Background(p.bg).
-			TransformOrigin(0, 0).Scale(sheetScale, sheetScale).Opacity(opacity)
-		sheet.Children(func() {
-			a.contentView(c)
-			ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
-		})
-		// 收缩期间整层挡住指针，不让快照里的按钮或画面接到点击。
-		ui.Box(c).Absolute().Fill().Role(ui.RoleNone)
-	})
-	a.snap = false
-	c.After(16 * time.Millisecond)
 }
 
 func (a *app) submitSearch() {
@@ -539,8 +548,17 @@ func (a *app) submitSearch() {
 	a.loadCatalog(1)
 }
 
-func (a *app) playRoom(r platforms.Room) {
+func (a *app) selectTargetRoom(r platforms.Room) {
+	if roomKey(a.targetRoom) != roomKey(r) {
+		a.cancelReturnCapture()
+		a.cardOpenAt = time.Time{}
+		a.returnFrame = nil
+	}
 	a.targetRoom = r
+}
+
+func (a *app) playRoom(r platforms.Room) {
+	a.selectTargetRoom(r)
 	a.resolve(r.Platform, r.ID, -1)
 }
 func (a *app) toggleFavorite(r platforms.Room) {
@@ -616,11 +634,16 @@ func (a *app) loadCatalog(page int) {
 	}()
 }
 
+type coverThumbnail struct {
+	bitmap *ui.Bitmap
+	data   []byte
+}
+
 func (a *app) cover(raw string) *ui.Bitmap {
 	if raw == "" {
 		return nil
 	}
-	if img := a.covers[raw]; img != nil {
+	if img := a.covers[raw].bitmap; img != nil {
 		return img
 	}
 	if a.ctx == nil || a.win == nil {
@@ -635,10 +658,10 @@ func (a *app) cover(raw string) *ui.Bitmap {
 	}
 	a.coverLoading[raw] = true
 	go func() {
-		var bitmap *ui.Bitmap
+		var thumb coverThumbnail
 		defer func() {
 			a.win.Update(func() {
-				a.finishCover(raw, bitmap)
+				a.finishCover(raw, thumb)
 			})
 		}()
 		select {
@@ -647,17 +670,17 @@ func (a *app) cover(raw string) *ui.Bitmap {
 			return
 		}
 		defer func() { <-a.coverSlots }()
-		bitmap, _ = downloadCover(a.ctx, a.client.HTTP, raw)
+		thumb, _ = downloadCover(a.ctx, a.client.HTTP, raw)
 	}()
 	return nil
 }
 
-func (a *app) finishCover(raw string, bitmap *ui.Bitmap) {
+func (a *app) finishCover(raw string, thumb coverThumbnail) {
 	delete(a.coverLoading, raw)
 	if a.closing {
 		return
 	}
-	if bitmap == nil {
+	if thumb.bitmap == nil {
 		if a.coverRetry == nil {
 			a.coverRetry = map[string]time.Time{}
 		}
@@ -676,44 +699,47 @@ func (a *app) finishCover(raw string, bitmap *ui.Bitmap) {
 		a.coverOrder = a.coverOrder[1:]
 		delete(a.covers, oldest)
 	}
-	a.covers[raw] = bitmap
+	a.covers[raw] = thumb
 	a.coverOrder = append(a.coverOrder, raw)
 	// 登记后即可丢弃 RGBA 像素；GPU 首次上传或重绘时按需从压缩缩略图重新解码。
-	bitmap.ReleasePixels()
+	thumb.bitmap.ReleasePixels()
+	if a.shown && raw == a.targetRoom.Cover {
+		a.publishMediaInfo()
+	}
 }
 
 // 网络或解码失败不会永久占用 loading 标记；短暂失败在冷却后可重新请求。
-func downloadCover(ctx context.Context, client *http.Client, raw string) (*ui.Bitmap, error) {
+func downloadCover(ctx context.Context, client *http.Client, raw string) (coverThumbnail, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return nil, err
+		return coverThumbnail{}, err
 	}
 	req.Header.Set("User-Agent", platforms.UserAgent)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return coverThumbnail{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("图片请求失败：%d", resp.StatusCode)
+		return coverThumbnail{}, fmt.Errorf("图片请求失败：%d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
 	if err != nil {
-		return nil, err
+		return coverThumbnail{}, err
 	}
 	if len(data) > 8<<20 {
-		return nil, fmt.Errorf("图片过大")
+		return coverThumbnail{}, fmt.Errorf("图片过大")
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return nil, err
+		return coverThumbnail{}, err
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 8192 || cfg.Height > 8192 {
-		return nil, fmt.Errorf("图片尺寸无效")
+		return coverThumbnail{}, fmt.Errorf("图片尺寸无效")
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return nil, err
+		return coverThumbnail{}, err
 	}
 	bounds := img.Bounds()
 	scale := min(640/float64(bounds.Dx()), 360/float64(bounds.Dy()), 1)
@@ -722,9 +748,14 @@ func downloadCover(ctx context.Context, client *http.Client, raw string) (*ui.Bi
 	draw.ApproxBiLinear.Scale(thumb, thumb.Bounds(), img, bounds, draw.Src, nil)
 	data = encodeCover(thumb)
 	if data == nil {
-		return nil, fmt.Errorf("封面编码失败")
+		return coverThumbnail{}, fmt.Errorf("封面编码失败")
 	}
-	return ui.DecodeBitmap(data)
+	bitmap, err := ui.DecodeBitmap(data)
+	if err != nil {
+		return coverThumbnail{}, err
+	}
+	// DecodeBitmap 也引用这份字节，系统封面和界面缩略图共享同一次下载。
+	return coverThumbnail{bitmap: bitmap, data: data}, nil
 }
 
 // encodeCover keeps the thumbnail compressed so that DecodeBitmap can drop

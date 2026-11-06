@@ -13,7 +13,11 @@ func (a *app) mediaInfo() mygo.NowPlayingInfo {
 	if a.stats.Paused {
 		state = mygo.PlaybackPaused
 	}
-	return mygo.NowPlayingInfo{Title: a.title, Artist: a.displayRoomName(a.targetRoom), Album: a.targetRoom.Platform.Name(), Artwork: appIconPNG, Duration: 0, State: state, Commands: mygo.MediaPlay | mygo.MediaPause | mygo.MediaStop}
+	artwork := a.covers[a.targetRoom.Cover].data
+	if len(artwork) == 0 {
+		artwork = appIconPNG
+	}
+	return mygo.NowPlayingInfo{Title: a.title, Artist: a.displayRoomName(a.targetRoom), Album: a.targetRoom.Platform.Name(), Artwork: artwork, Duration: 0, State: state, Commands: mygo.MediaPlay | mygo.MediaPause | mygo.MediaStop}
 }
 
 func (a *app) registerMediaControls() {
@@ -44,13 +48,17 @@ func (a *app) handleMediaCommand(cmd mygo.MediaCommand) {
 	}
 }
 
-func (a *app) publishMediaInfo() {
+func (a *app) ownsSystemMedia() bool {
 	root := a.rootApp()
 	owner := root.mediaOwner
 	if owner == nil {
 		owner = root
 	}
-	if root.mediaCommandsOff == nil || owner != a {
+	return root.mediaCommandsOff != nil && owner == a
+}
+
+func (a *app) publishMediaInfo() {
+	if !a.ownsSystemMedia() {
 		return
 	}
 	if !a.shown {
@@ -58,15 +66,12 @@ func (a *app) publishMediaInfo() {
 		return
 	}
 	mygo.NowPlaying.Set(a.mediaInfo())
+	a.publishNativeMediaMetadata()
+	a.cover(a.targetRoom.Cover)
 }
 
 func (a *app) updateSystemPlayback() {
-	root := a.rootApp()
-	owner := root.mediaOwner
-	if owner == nil {
-		owner = root
-	}
-	if root.mediaCommandsOff == nil || owner != a {
+	if !a.ownsSystemMedia() {
 		return
 	}
 	if !a.shown {
@@ -78,4 +83,5 @@ func (a *app) updateSystemPlayback() {
 		state = mygo.PlaybackPaused
 	}
 	mygo.NowPlaying.SetPlayback(state, 0)
+	a.publishNativeMediaMetadata()
 }

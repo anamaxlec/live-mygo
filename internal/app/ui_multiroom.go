@@ -53,7 +53,7 @@ func (a *app) openExtraRoom(room platforms.Room) {
 		return
 	}
 	ctx, cancel := context.WithCancel(root.ctx)
-	child := &app{parent: root, ctx: ctx, cancel: cancel, library: root.library, vault: root.vault, client: platforms.NewClient(root.vault), opts: options{platform: string(room.Platform), room: room.ID, mute: true}, started: time.Now(), volume: root.volume, platformLabel: room.Platform.Name(), targetRoom: room, title: room.Title, page: "player", focusMode: true, companion: true, accountStatus: map[platforms.Platform]string{}, covers: map[string]*ui.Bitmap{}, coverLoading: map[string]bool{}, coverSlots: make(chan struct{}, 4), categories: map[platforms.Platform][]platforms.Category{}, categoryLoading: map[platforms.Platform]bool{}, playerOps: make(chan func(*player.Player), 64)}
+	child := &app{parent: root, ctx: ctx, cancel: cancel, library: root.library, vault: root.vault, client: platforms.NewClient(root.vault), opts: options{platform: string(room.Platform), room: room.ID, mute: true}, started: time.Now(), volume: root.volume, platformLabel: room.Platform.Name(), targetRoom: room, title: room.Title, page: "player", focusMode: true, companion: true, accountStatus: map[platforms.Platform]string{}, covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{}, coverSlots: make(chan struct{}, 4), categories: map[platforms.Platform][]platforms.Category{}, categoryLoading: map[platforms.Platform]bool{}, playerOps: make(chan func(*player.Player), 64)}
 	if child.volume == 0 {
 		child.volume = 60
 	}

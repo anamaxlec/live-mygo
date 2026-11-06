@@ -15,6 +15,7 @@ func (a *app) setAudioOnly(enabled bool) {
 		next := a.library.Preferences
 		next.AudioOnly = enabled
 		a.savePreferences(next)
+		a.updateSystemPlayback()
 		if enabled {
 			a.clearFlyingChat()
 		}

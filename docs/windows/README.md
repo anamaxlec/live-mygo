@@ -1,8 +1,8 @@
 # Windows 测试交接
 
-本地新增功能的交接另见 [2026-11-05 新功能交接](2026-11-05-HANDOFF.md)，与下面已发布版本的实机记录分开。
+当前测试包为 `0.4.2-beta.3`，目标为 Windows x64。新增功能和待回归项见 [Windows 新功能交接](2026-11-05-HANDOFF.md)。
 
-当前为 `0.4.1-beta.3`，目标是 Windows x64，为未签名测试构建。可使用同版本的安装包 `LiveMyGo-v0.4.1-beta.3-windows-amd64-setup.exe`（当前用户安装，无需管理员权限），或解压应用 ZIP 后直接运行 `LiveMyGo.exe`。便携包里的 `libmpv-2.dll` 和 `cacert.pem` 需要保留。
+安装程序为未签名测试构建，安装到当前用户，无需管理员权限。便携版解压后运行 `LiveMyGo.exe`，保留同目录的 `libmpv-2.dll` 和 `cacert.pem`。
 
 此版本包含 Windows 播放 CPU 开销优化：渲染线程改由 mpv 新帧回调唤醒，暂停或空闲时不再每 4 ms 轮询；RGB 帧的 alpha 改为按 32 位批量补齐。另包含内存优化：封面以压缩缩略图缓存并在 GPU 上传后释放 RGBA 像素；mpv 后向缓存降至 4 MiB，本地文件不再启用流缓存。
 

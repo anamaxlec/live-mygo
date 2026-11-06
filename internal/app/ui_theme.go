@@ -96,14 +96,25 @@ func (a *app) applyLocalPreferences(before, next library.Preferences) {
 }
 
 func (a *app) leavePlayer() {
-	if a.page == "player" && a.busy {
+	if a.page != "player" && a.cardOpenAt.IsZero() {
+		return
+	}
+	if a.busy {
 		a.generation++
 		if a.resolveCancel != nil {
 			a.resolveCancel()
+			a.resolveCancel = nil
+		}
+		if a.reconnectTimer != nil {
+			a.reconnectTimer.Stop()
+			a.reconnectTimer = nil
 		}
 		a.busy = false
+		if !a.shown {
+			a.status = "已取消连接"
+		}
 	}
-	if a.page == "player" && a.library != nil && a.library.Preferences.PauseWhenBrowsing && a.shown && !a.stats.Paused {
+	if a.library != nil && a.library.Preferences.PauseWhenBrowsing && a.shown && !a.stats.Paused {
 		a.togglePause()
 		a.pausedOnLeave = true
 	}

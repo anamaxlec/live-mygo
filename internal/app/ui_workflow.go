@@ -144,32 +144,34 @@ func mergeRecommendations(groups [][]platforms.Room) []platforms.Room {
 		}
 	}
 }
+
+const minChatWidth float32 = 192
+const maxChatWidth float32 = 560
+
 func (a *app) preferredChatWidth() float32 {
 	if a.library != nil && a.library.Preferences.ChatWidth > 0 {
-		return float32(max(240, min(560, a.library.Preferences.ChatWidth)))
+		return max(minChatWidth, min(maxChatWidth, float32(a.library.Preferences.ChatWidth)))
 	}
 	return chatPanelWidth
 }
-func (a *app) chatWidth(c *ui.Context) float32 {
+func (a *app) chatWidth(c *ui.Context, side float32) float32 {
 	w, _ := c.Size()
-	side := float32(0)
-	if !a.focusMode {
-		side = sidebarWidth
-	}
-	return min(a.preferredChatWidth(), max(240, (w-side)*.48))
+	return min(a.preferredChatWidth(), max(minChatWidth, (w-side)*.48))
 }
 func (a *app) chatResizeHandle(c *ui.Context, width, edge float32) {
 	grip := ui.Box(c.Key("chat-resize")).Absolute().Top(edge).Bottom(edge).Right(width + edge - 4).Width(8).Cursor(ui.CursorResizeEW).Label("调整弹幕栏宽度")
+	if a.snap {
+		return
+	}
 	_, _, pressed := grip.Dragged()
 	if pressed && a.library != nil {
-		// 拖动时分隔条本身会跟着宽度移动，不能用逐帧 dx 累加；
-		// 以按下时的指针位置为基准计算绝对位移，否则手一停就再也拖不动。
-		px, _, _ := grip.PointerPosition()
+		// 分隔条跟随布局移动，拖动基准固定在窗口坐标系。
+		px, _, _ := c.Root().PointerPosition()
 		if !a.chatResizing {
 			a.chatResizing = true
 			a.chatDragPx, a.chatDragWidth = px, width
 		}
-		target := float32(max(240, min(560, a.chatDragWidth+a.chatDragPx-px)))
+		target := max(minChatWidth, min(maxChatWidth, a.chatDragWidth+a.chatDragPx-px))
 		if target != float32(a.library.Preferences.ChatWidth) {
 			next := a.library.Preferences
 			next.ChatWidth = float64(target)
@@ -198,7 +200,9 @@ func (a *app) closePlayback() {
 		a.page = "home"
 		a.skipBrowseEnter = true
 		a.focusMode = false
-		a.navReturn++
+		if !a.classicReturn() {
+			a.navReturn++
+		}
 		fresh := a.restoreHomeCatalog()
 		if a.win != nil && !fresh {
 			a.loadCatalog(1)

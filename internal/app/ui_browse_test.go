@@ -21,7 +21,7 @@ func TestSearchResultsExposeBackButton(t *testing.T) {
 	a := &app{
 		page: "douyu", platformLabel: "斗鱼", catalogQuery: "玩机器", catalog: rooms, library: s,
 		focusMode: true, navMeasured: true, navWidth: 0,
-		covers: map[string]*ui.Bitmap{}, coverLoading: map[string]bool{},
+		covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{},
 	}
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
@@ -49,7 +49,7 @@ func TestBrowsePagesShareOneLeftEdgeWhileSidebarMoves(t *testing.T) {
 			a := &app{
 				page: "huya", platformLabel: "虎牙", catalog: rooms, library: s,
 				focusMode: navWidth == 0, navMeasured: true, navWidth: navWidth,
-				covers: map[string]*ui.Bitmap{}, coverLoading: map[string]bool{},
+				covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{},
 			}
 			tester := ui.NewTester(func(c *ui.Context) {
 				ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
@@ -172,7 +172,7 @@ func TestLiveCardsKeepTitleBelowWidescreenCover(t *testing.T) {
 	for _, width := range []int{1000, 1180, 1480} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			s, _ := library.Load(filepath.Join(t.TempDir(), "library.json"))
-			a := &app{page: "bilibili", library: s, covers: map[string]*ui.Bitmap{}, coverLoading: map[string]bool{}}
+			a := &app{page: "bilibili", library: s, covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{}}
 			tester := ui.NewTester(func(c *ui.Context) {
 				ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 					ui.Box(c).Width(sidebarWidth)

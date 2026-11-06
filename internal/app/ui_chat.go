@@ -238,7 +238,7 @@ func retainChat(previous, batch []platforms.ChatMessage) []platforms.ChatMessage
 	return kept
 }
 
-func (a *app) chatView(c *ui.Context) {
+func (a *app) chatView(c *ui.Context, width float32) {
 	p := colors(c.Theme())
 	prefs := library.Preferences{ChatConnection: true}
 	if a.library != nil {
@@ -272,7 +272,13 @@ func (a *app) chatView(c *ui.Context) {
 		listLabel = "播放线路列表"
 	}
 	ui.Column(c.Key("docked-chat")).FillWidth().FillHeight().Shrink(0).Radius(0, radius, radius, 0).Clip().Background(backdrop).BorderWidth(0, 0, 0, .5).BorderColor(p.line).Label(listLabel).Children(func() {
-		ui.Row(c).Height(44).Shrink(0).Padding(0, 11, 0, 14).Gap(5).AlignItems(ui.Center).Children(func() {
+		header := ui.Row(c).Height(44).Shrink(0).Padding(0, 11, 0, 14).Gap(5).AlignItems(ui.Center)
+		tabPad := filterTabPad
+		if width < 224 {
+			header.PaddingX(7).Gap(3)
+			tabPad = 7
+		}
+		header.Children(func() {
 			if a.targetRoom.Platform == platforms.FLive {
 				ui.Text(c, "播放线路").FontSize(12).FontWeight(600).TextColor(p.text)
 				return
@@ -283,7 +289,7 @@ func (a *app) chatView(c *ui.Context) {
 					if onlySC {
 						label = "醒目留言"
 					}
-					if filterButton(c.Key(onlySC), label, a.chatOnlySC == onlySC).Height(24).Clicked() {
+					if filterButton(c.Key(onlySC), label, a.chatOnlySC == onlySC).Height(24).PaddingX(tabPad).Clicked() {
 						a.chatOnlySC = onlySC
 						a.chatList = ui.ListState{FollowEnd: true}
 					}
@@ -335,7 +341,7 @@ func (a *app) chatView(c *ui.Context) {
 		ui.Box(c).Height(1).Shrink(0).Background(p.line)
 		area := ui.Box(c.Key(chatAreaID(roomKey(a.targetRoom)))).Grow(1).MinHeight(0)
 		target := float32(0)
-		if prefs.ChatConnection && a.targetRoom.ID != "" && a.connectionPending() {
+		if a.connectionPending(prefs.ChatConnection) {
 			target = 1
 		}
 		opacity := area.AnimateTo("connection-opacity", target, ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut})

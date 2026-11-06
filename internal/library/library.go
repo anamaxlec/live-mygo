@@ -49,6 +49,7 @@ type Preferences struct {
 	NotifyInterval    int           `json:"notify_interval_minutes,omitempty"`
 	DefaultQuality    string        `json:"default_quality"`
 	PauseWhenBrowsing bool          `json:"pause_when_browsing"`
+	ClassicReturn     bool          `json:"classic_return,omitempty"`
 	Danmaku           bool          `json:"danmaku"`
 	DanmakuSize       float64       `json:"danmaku_size"`
 	DanmakuOpacity    float64       `json:"danmaku_opacity"`

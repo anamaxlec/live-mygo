@@ -132,3 +132,32 @@ func TestReducedMotionDoesNotKeepClosingPopover(t *testing.T) {
 		t.Fatal("减少动态效果设置仍等待浮层移动")
 	}
 }
+
+func TestCookieDisclosureMovesFooterWithForm(t *testing.T) {
+	a := polishApp(t)
+	a.settings.tab = settingsAccounts
+	view := ui.NewTester(a.settingsView, 820, 960)
+	const footer = "Cookie 加密保存在此设备。"
+	start, found := view.Find(footer)
+	if !found {
+		t.Fatal("未找到账号页说明")
+	}
+	if err := view.Click("导入已有 Cookie"); err != nil {
+		t.Fatal(err)
+	}
+	view.Advance(80 * time.Millisecond)
+	mid, _ := view.Find(footer)
+	view.Advance(160 * time.Millisecond)
+	end, _ := view.Find(footer)
+	if !(start.Y < mid.Y && mid.Y < end.Y) {
+		t.Fatalf("说明没有随表单高度一起移动：%.1f -> %.1f -> %.1f", start.Y, mid.Y, end.Y)
+	}
+	if err := view.Click("导入已有 Cookie"); err != nil {
+		t.Fatal(err)
+	}
+	view.Advance(230 * time.Millisecond)
+	closed, _ := view.Find(footer)
+	if _, ok := view.Find("手动导入 Cookie"); ok || closed.Y != start.Y {
+		t.Fatal("收起后仍保留表单或额外占位")
+	}
+}

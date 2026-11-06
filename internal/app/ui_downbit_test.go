@@ -122,14 +122,14 @@ func TestCategorizedSettingsExposeExistingPreferences(t *testing.T) {
 	if err := tester.Click("设置分类：弹幕列表"); err != nil {
 		t.Fatal(err)
 	}
-	for _, label := range []string{"列表样式", "显示弹幕列表", "显示连接面板"} {
+	for _, label := range []string{"列表样式", "显示弹幕列表", "显示弹幕连接提示"} {
 		if _, ok := tester.Find(label); !ok {
 			t.Fatal("缺少列表设置", label)
 		}
 	}
 	before := a.library.Preferences.ChatConnection
 	// Find 返回左侧文本；点击它右侧的实际 Switch。
-	row, _ := tester.Find("显示连接面板")
+	row, _ := tester.Find("显示弹幕连接提示")
 	tester.ClickAt(row.X+row.W+25, row.Y+row.H/2)
 	if a.library.Preferences.ChatConnection == before {
 		t.Fatal("完整设置页未写入原有偏好")
@@ -141,9 +141,15 @@ func TestFailedConnectionKeepsIdentityAndRecoveryActions(t *testing.T) {
 	a.page, a.focusMode = "player", true
 	a.targetRoom = platforms.Room{Platform: platforms.Douyu, ID: "24422", Title: "同一个房间", Anchor: "同一个主播"}
 	a.title = a.targetRoom.Title
-	a.status = "房间未开播"
+	a.library.Preferences.ChatConnection = false
+	a.busy = true
 	tester := ui.NewTester(a.view, 1000, 580)
-	for _, label := range []string{"同一个房间", "解析房间：房间未开播", "重新连接", "返回直播列表"} {
+	if _, ok := tester.Find("正在解析房间"); !ok {
+		t.Fatal("关闭弹幕连接提示后丢失房间加载状态")
+	}
+	a.busy, a.status = false, "房间未开播"
+	tester.Frame()
+	for _, label := range []string{"同一个房间", "直播间未开播", "解析房间：房间未开播", "重新连接", "返回直播列表"} {
 		if _, ok := tester.Find(label); !ok {
 			t.Fatal("错误状态缺少身份或恢复操作", label)
 		}
@@ -155,25 +161,31 @@ func TestFailedConnectionKeepsIdentityAndRecoveryActions(t *testing.T) {
 	}
 }
 
-func TestConnectionStatusStaysOutOfVideoWhenChatIsHidden(t *testing.T) {
+func TestPlaybackConnectionCardFallsBackToVideoWhenChatIsHidden(t *testing.T) {
 	a := polishApp(t)
 	a.page, a.focusMode = "player", true
 	a.targetRoom = platforms.Room{Platform: platforms.Douyu, ID: "24422"}
 	a.status = "连接失败"
 	a.library.Preferences.ChatPanel = false
+	a.library.Preferences.ChatConnection = false
 	tester := ui.NewTester(a.view, 1000, 580)
-	if _, ok := tester.Find("直播间连接状态"); ok {
-		t.Fatal("弹幕区收起时仍显示连接面板")
+	video, _ := tester.Find("直播画面，双击切换全屏")
+	status, found := tester.Find("直播间连接状态")
+	if !found || status.X < video.X+video.W/2 || status.X+status.W > video.X+video.W ||
+		status.Y+status.H/2 < video.Y+video.H/2 || status.Y+status.H > video.Y+video.H {
+		t.Fatalf("弹幕区收起时未在播放器右下方显示连接卡片：video=%+v status=%+v", video, status)
 	}
-	if _, ok := tester.Find(shortcutLabel("重新连接 · ⌘R")); !ok {
-		t.Fatal("弹幕区收起后丢失播放器重试入口")
+	if _, ok := tester.Find("返回直播列表"); !ok {
+		t.Fatal("卡片丢失返回操作")
 	}
 	a.library.Preferences.ChatPanel = true
-	a.library.Preferences.ChatConnection = false
+	a.shown = true
+	a.stream = &platforms.Stream{Room: a.targetRoom}
+	a.chatRoomKey, a.chatStatus = roomKey(a.targetRoom), "弹幕服务连接失败"
 	tester.Frame()
 	tester.Advance(300 * time.Millisecond)
 	if _, ok := tester.Find("直播间连接状态"); ok {
-		t.Fatal("隐藏连接状态的偏好未生效")
+		t.Fatal("关闭弹幕连接提示后仍显示弹幕连接失败")
 	}
 }
 
@@ -245,13 +257,18 @@ func TestQuickSearchDefaultsToCurrentRoomPlatform(t *testing.T) {
 func TestNowPlayingCardResumesLeavingPauseAndCollapsesSidebar(t *testing.T) {
 	a := polishApp(t)
 	a.page, a.focusMode, a.shown = "bilibili", false, true
-	a.pausedOnLeave, a.stats.Paused = true, true
+	// 暂停命令已入队，但这一帧的统计还显示正在播放。
+	a.pausedOnLeave = true
 	a.stream = &platforms.Stream{Room: platforms.Room{Platform: platforms.Bilibili, ID: "6", Title: "当前直播", Anchor: "当前主播"}}
 	a.targetRoom = a.stream.Room
 	tester := ui.NewTester(a.view, 1180, 780)
 	if err := tester.Click("返回正在播放的直播间"); err != nil {
 		t.Fatal(err)
 	}
+	if a.cardOpenAt.IsZero() || len(a.playerOps) != 1 {
+		t.Fatal("未在展开时排入显式续播命令")
+	}
+	tester.Advance(cardOpenDuration + time.Millisecond)
 	if a.page != "player" || !a.focusMode {
 		t.Fatalf("返回直播间未进入播放页或未收起侧栏：page=%q focusMode=%v", a.page, a.focusMode)
 	}
@@ -269,6 +286,7 @@ func TestNowPlayingCardKeepsManualPause(t *testing.T) {
 	if err := tester.Click("返回正在播放的直播间"); err != nil {
 		t.Fatal(err)
 	}
+	tester.Advance(cardOpenDuration + time.Millisecond)
 	if !a.stats.Paused || a.page != "player" {
 		t.Fatalf("手动暂停被返回直播间操作解除：paused=%v page=%q", a.stats.Paused, a.page)
 	}

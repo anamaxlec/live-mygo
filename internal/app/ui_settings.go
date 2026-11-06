@@ -10,6 +10,7 @@ import (
 	"live-mygo/internal/platforms"
 	"live-mygo/internal/player"
 	"strings"
+	"time"
 )
 
 const (
@@ -366,6 +367,19 @@ func (a *app) playbackSettings(c *ui.Context) {
 				}
 			})
 			settingsDivider(c)
+			settingsRow(c, "返回动效", func() {
+				label := "收拢到卡片"
+				if a.classicReturn() {
+					label = "展开侧栏"
+				}
+				if ui.Select(c, &label, []string{"收拢到卡片", "展开侧栏"}).
+					Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("返回动效").Changed() {
+					next := a.library.Preferences
+					next.ClassicReturn = label == "展开侧栏"
+					a.savePreferences(next)
+				}
+			})
+			settingsDivider(c)
 			settingsRow(c, "窗口跟随画面比例", func() {
 				v := a.library.Preferences.FollowVideo
 				if ui.Switch(c, &v).Label("窗口跟随画面比例").Changed() {
@@ -443,21 +457,31 @@ func (a *app) accountSettings(c *ui.Context) {
 				if a.settings.manual {
 					angle = 90
 				}
-				ui.Icon(c, iconChevron).Size(13, 13).Rotate(angle).TextColor(p.faint)
+				ui.Icon(c, iconChevron).Size(13, 13).Rotate(b.Animate("disclosure-angle", angle, 180*time.Millisecond)).TextColor(p.faint)
 			})
 			if b.Clicked() {
 				a.settings.manual = !a.settings.manual
 				a.settings.message = ""
 			}
+			form := ui.Column(c.Key("manual-cookie")).FillWidth().Shrink(0).Clip()
+			const cookieFormHeight = 1 + 50 + settingsControlHeight + 15
+			targetHeight := float32(0)
 			if a.settings.manual {
-				settingsDivider(c)
-				ui.Column(c.Key("manual-cookie")).FillWidth().Transition(menuContentTransition).Children(func() {
+				targetHeight = cookieFormHeight
+			}
+			height := form.AnimateTo("height", targetHeight, ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseInOut})
+			form.Height(height).Hidden(height <= .1).Children(func() {
+				if height <= .1 {
+					return
+				}
+				ui.Column(c).FillWidth().Height(cookieFormHeight).Shrink(0).Children(func() {
+					settingsDivider(c)
 					settingsRow(c, "来源", func() {
-						ui.Select(c, &a.settings.selected, []string{"哔哩哔哩", "斗鱼", "抖音", "企鹅体育"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("Cookie 所属平台")
+						ui.Select(c, &a.settings.selected, []string{"哔哩哔哩", "斗鱼", "抖音", "企鹅体育"}).Width(settingsControlWidth).Height(settingsControlHeight).FontSize(12).Label("Cookie 所属平台").Disabled(!a.settings.manual)
 					})
 					ui.Row(c).FillWidth().Padding(0, 15, 15, 15).Gap(10).AlignItems(ui.Center).Children(func() {
-						ui.TextInput(c, &a.settings.imported).Password().Placeholder("粘贴 Cookie").Label("手动导入 Cookie").FontSize(12).Grow(1).MinWidth(0).Height(settingsControlHeight)
-						if settingsAction(c, "保存").Label("保存导入 Cookie").Disabled(strings.TrimSpace(a.settings.imported) == "").Clicked() {
+						ui.TextInput(c, &a.settings.imported).Password().Placeholder("粘贴 Cookie").Label("手动导入 Cookie").FontSize(12).Grow(1).MinWidth(0).Height(settingsControlHeight).Disabled(!a.settings.manual)
+						if settingsAction(c, "保存").Label("保存导入 Cookie").Disabled(!a.settings.manual || strings.TrimSpace(a.settings.imported) == "").Clicked() {
 							source := platforms.Bilibili
 							if a.settings.selected == "企鹅体育" {
 								source = platforms.Qie
@@ -486,7 +510,7 @@ func (a *app) accountSettings(c *ui.Context) {
 						}
 					})
 				})
-			}
+			})
 		})
 		ui.Text(c, "Cookie 加密保存在此设备。").FontSize(11.5).TextColor(p.muted).PaddingX(15)
 		if a.settings.message != "" {

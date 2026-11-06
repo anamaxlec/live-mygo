@@ -32,7 +32,7 @@ func TestChatEnvelopeKeepsNewMessagesInteractiveAndStopsAnimating(t *testing.T) 
 		a := polishApp(t)
 		a.targetRoom = platforms.Room{Platform: platforms.Douyu, ID: "1"}
 		a.chatMessages = []platforms.ChatMessage{{ID: 1, User: "原消息", Text: "准备收好"}}
-		tester := ui.NewTester(a.chatView, 320, 540)
+		tester := ui.NewTester(func(c *ui.Context) { a.chatView(c, chatPanelWidth) }, 320, 540)
 		tester.SetPreferences(ui.Preferences{ReduceMotion: reduced, TextScale: 1})
 		a.clearChatWithMotion()
 		tester.Frame()
@@ -55,7 +55,7 @@ func TestClearingFromChatMenuKeepsCurrentFrameIndicesValid(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		a.chatMessages = append(a.chatMessages, platforms.ChatMessage{ID: uint64(i + 1), User: "观众", Text: "准备清空的消息"})
 	}
-	tester := ui.NewTester(a.chatView, 320, 540)
+	tester := ui.NewTester(func(c *ui.Context) { a.chatView(c, chatPanelWidth) }, 320, 540)
 	if err := tester.Click("弹幕列表操作"); err != nil {
 		t.Fatal(err)
 	}

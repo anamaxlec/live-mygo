@@ -15,11 +15,15 @@ func (a *app) connectionOverlay(c *ui.Context, opacity float32) {
 	if opacity <= .005 {
 		return
 	}
-	p := colors(c.Theme())
 	// 叠层的空白区域穿透点击，只有卡片本身接收操作。
 	ui.Box(c.Key("connection-layer")).Absolute().Left(10).Right(10).Top(10).Bottom(10).Justify(ui.End).PassThrough().Opacity(opacity).Children(func() {
-		ui.Scroll(c).MaxHeightPercent(100).Radius(10).Background(p.bg).Border(1, p.line).Shadow(0, 4, 18, 0, ui.RGBA(0, 0, 0, .12)).Children(func() { a.connectionStatus(c) })
+		a.connectionCard(c)
 	})
+}
+
+func (a *app) connectionCard(c *ui.Context) {
+	p := colors(c.Theme())
+	ui.Scroll(c).MaxHeightPercent(100).Radius(10).Background(p.bg).Border(1, p.line).Shadow(0, 4, 18, 0, ui.RGBA(0, 0, 0, .12)).Children(func() { a.connectionStatus(c) })
 }
 
 func (a *app) connectionSteps() []connectionStep {
@@ -44,7 +48,7 @@ func (a *app) connectionSteps() []connectionStep {
 			video.detail = "已暂停"
 		}
 	}
-	if !a.busy && !a.shown {
+	if !a.connectionBusy() && !a.shown {
 		if resolved {
 			video.detail, video.state = a.status, "failed"
 		} else {
@@ -67,6 +71,10 @@ func (a *app) connectionSteps() []connectionStep {
 	return []connectionStep{room, video, chat}
 }
 
+func (a *app) connectionBusy() bool {
+	return a.busy || a.snap && a.returnShrink && a.returnWasBusy
+}
+
 func (a *app) waitingForVideo() bool {
 	if a.audioOnly() {
 		return !a.shown || a.stats.AudioCodec == ""
@@ -74,8 +82,12 @@ func (a *app) waitingForVideo() bool {
 	return !a.shown || !a.playStarted.IsZero() && a.decodedMS == 0
 }
 
-func (a *app) connectionPending() bool {
-	return a.waitingForVideo() || a.targetRoom.Platform != platforms.FLive && a.chatRoomKey == roomKey(a.targetRoom) && a.chatStatus != "已连接"
+func (a *app) connectionPending(showChatStatus bool) bool {
+	return a.targetRoom.ID != "" && (a.waitingForVideo() || showChatStatus && a.targetRoom.Platform != platforms.FLive && a.chatRoomKey == roomKey(a.targetRoom) && a.chatStatus != "已连接")
+}
+
+func roomOfflineStatus(message string) bool {
+	return strings.Contains(message, "未开播") || strings.Contains(message, "未直播")
 }
 
 func connectionRows(c *ui.Context, steps []connectionStep) {
@@ -110,7 +122,7 @@ func connectionRows(c *ui.Context, steps []connectionStep) {
 func connectionSummary(steps []connectionStep) (title, detail string, failed bool) {
 	for i, step := range steps {
 		if step.state == "failed" {
-			if strings.Contains(step.detail, "未开播") {
+			if roomOfflineStatus(step.detail) {
 				return "直播间未开播", "", true
 			}
 			title = "暂时无法连接"
@@ -128,7 +140,6 @@ func connectionSummary(steps []connectionStep) (title, detail string, failed boo
 	return "连接完成", "", false
 }
 
-// 连接进度只在弹幕栏内展示，不占用或遮挡视频区域。
 func (a *app) connectionStatus(c *ui.Context) {
 	p := colors(c.Theme())
 	steps := a.connectionSteps()
@@ -154,7 +165,7 @@ func (a *app) connectionStatus(c *ui.Context) {
 			ui.Text(c, detail).FontSize(11).TextColor(p.muted).MaxLines(3)
 		}
 		connectionRows(c, steps)
-		if !a.busy && !a.shown {
+		if !a.connectionBusy() && !a.shown {
 			if a.reconnectAttempts >= 3 {
 				ui.Text(c, "自动恢复未成功，可以手动重试或切换播放内核。").FontSize(11).TextColor(p.muted).MaxLines(2)
 			}
@@ -163,8 +174,8 @@ func (a *app) connectionStatus(c *ui.Context) {
 					a.reloadStream()
 				}
 				back := ui.Button(c, "返回列表").Label("返回直播列表").Grow(1).Basis(0).MinWidth(0).Padding(0).Height(30).Radius(7).Border(0, ui.Transparent).FontSize(11.5).TextColor(p.muted)
-				if back.Clicked() {
-					a.backToBrowse()
+				if back.Clicked() && !a.snap {
+					a.backToBrowse(c)
 				}
 			})
 			if a.reconnectAttempts >= 3 && ui.Button(c, "播放设置").FillWidth().Height(30).FontSize(11.5).Clicked() {

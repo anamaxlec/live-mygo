@@ -9,6 +9,8 @@ import (
 	"live-mygo/internal/player"
 )
 
+func (a *app) captureReturnFrame() bool { return false }
+
 // takeVideoFrame 在 UI 线程取走最新一帧，并释放上一帧缓冲。
 func (a *app) takeVideoFrame() {
 	if a.surface == nil {

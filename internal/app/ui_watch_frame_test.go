@@ -143,7 +143,7 @@ func TestChatBackgroundRoundsWithoutOuterWatchClip(t *testing.T) {
 		}
 		tester := ui.NewTester(func(c *ui.Context) {
 			c.Root().Background(ui.Transparent)
-			a.chatView(c)
+			a.chatView(c, chatPanelWidth)
 		}, 286, 700)
 		img := tester.Image()
 		for _, y := range []int{0, 699} {

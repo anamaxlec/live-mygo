@@ -11,7 +11,7 @@ SetCompressorDictSize 64
 !include "x64.nsh"
 
 !define APP_NAME "Live MyGo"
-!define APP_VERSION "0.4.2-beta.4"
+!define APP_VERSION "0.4.2-beta.5"
 !define APP_EXE "LiveMyGo.exe"
 !define PAYLOAD "build\windows-amd64"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\LiveMyGo"
@@ -25,7 +25,7 @@ Icon "${PAYLOAD}\AppIcon.ico"
 UninstallIcon "${PAYLOAD}\AppIcon.ico"
 BrandingText "${APP_NAME} ${APP_VERSION}"
 
-VIProductVersion "0.4.2.4"
+VIProductVersion "0.4.2.5"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey "FileVersion" "${APP_VERSION}"

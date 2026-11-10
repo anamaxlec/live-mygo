@@ -1,0 +1,28 @@
+//go:build darwin && cgo
+
+package app
+
+import "live-mygo/internal/player"
+
+func (a *app) startSystemPicture() (systemPictureInPicture, error) {
+	var picture *player.PictureInPicture
+	picture, err := player.StartPictureInPicture(a.surface, a.win.NativeHandle(), a.stats.Paused, func(event player.PictureInPictureEvent) {
+		a.win.Update(func() {
+			if a.closing || a.systemPicture != picture {
+				return
+			}
+			switch event {
+			case player.PictureInPictureStopped:
+				a.closeSystemPicture()
+			case player.PictureInPictureFailed:
+				a.closeSystemPicture()
+				a.toast = "系统画中画未能启动"
+			case player.PictureInPicturePlay:
+				a.setPlaybackPaused(false, nil)
+			case player.PictureInPicturePause:
+				a.setPlaybackPaused(true, nil)
+			}
+		})
+	})
+	return picture, err
+}

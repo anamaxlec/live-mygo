@@ -1,6 +1,6 @@
 # Windows 测试交接
 
-当前测试包为 `0.4.2-beta.4`，目标为 Windows x64。新增功能和待回归项见 [Windows 新功能交接](2026-11-05-HANDOFF.md)。
+当前测试包为 `0.4.2-beta.5`，目标为 Windows x64。新增功能和待回归项见 [Windows 新功能交接](2026-11-05-HANDOFF.md)。
 
 安装程序为未签名测试构建，安装到当前用户，无需管理员权限。便携版解压后运行 `LiveMyGo.exe`，保留同目录的 `libmpv-2.dll` 和 `cacert.pem`。
 

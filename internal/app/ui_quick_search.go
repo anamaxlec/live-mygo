@@ -104,8 +104,8 @@ func directRoomQuery(query string) bool {
 
 func (a *app) quickRoomPlatform() platforms.Platform {
 	p := a.platform()
-	if a.page == "player" && a.targetRoom.Platform != "" {
-		p = a.targetRoom.Platform
+	if a.page == "player" && a.featuredViewer().targetRoom.Platform != "" {
+		p = a.featuredViewer().targetRoom.Platform
 	}
 	for _, source := range a.sourcePlatforms() {
 		if source.Name() == a.quick.platform {
@@ -133,7 +133,11 @@ func (a *app) submitQuickSearch() {
 			return
 		}
 		a.closeQuickSearch()
-		a.resolve(p, query, -1)
+		if a.page == "player" {
+			a.featuredViewer().resolve(p, query, -1)
+		} else {
+			a.resolve(p, query, -1)
+		}
 		return
 	}
 	if a.quick.cancel != nil {
@@ -249,6 +253,14 @@ func (a *app) quickSearchView(c *ui.Context) {
 					for _, room := range rooms {
 						b := ui.ButtonBase(c.Key(roomKey(room))).FillWidth().Height(62).Padding(8).Gap(11).Radius(8).AlignItems(ui.Center).Label("切换到 " + a.displayRoomName(room) + " " + room.Title)
 						buttonFeedback(b, p)
+						if a.canAddSideRoom(room) {
+							b.ContextMenu(func(m *ui.Menu) {
+								if m.Item("在副画面播放").Chosen() {
+									a.closeQuickSearch()
+									a.openSideRoom(c, room)
+								}
+							})
+						}
 						b.Children(func() {
 							ui.Box(c).Size(64, 40).Radius(6).Clip().Shrink(0).Children(func() { a.coverImage(c, room.Cover, 6); sourceBadge(c, room.Platform, true) })
 							ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {

@@ -30,8 +30,10 @@ func (a *app) view(c *ui.Context) {
 		a.pendingPage = ""
 		a.openPage(page)
 	}
+	a.acceptLiveLinkDrop(c)
 	a.advanceCardOpen(c)
 	a.builtPage = a.page
+	viewer := a.featuredViewer()
 	if a.win != nil && (!a.iconSet || a.iconDark != c.Theme().Dark) {
 		a.iconSet = true
 		a.iconDark = c.Theme().Dark
@@ -51,6 +53,10 @@ func (a *app) view(c *ui.Context) {
 			a.toast = ""
 		}
 	}()
+	if a.page == "welcome" {
+		a.welcomeView(c)
+		return
+	}
 	fullScreen := a.page == "player" && a.win != nil && a.win.IsFullScreen()
 	if fullScreen {
 		c.SetTheme(ui.DarkTheme())
@@ -85,7 +91,7 @@ func (a *app) view(c *ui.Context) {
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyR, func() {
 		if a.page == "player" {
-			a.reloadStream()
+			viewer.reloadStream()
 		} else if a.page == "favorites" {
 			a.refreshFavorites(true)
 		} else if a.page == "home" || a.page == "huya" || a.page == "bilibili" || a.page == "douyu" || a.page == "douyin" || a.page == "qie" || a.page == string(platforms.FLive) {
@@ -94,10 +100,10 @@ func (a *app) view(c *ui.Context) {
 	})
 	openingRoom := a.page != "player" && !a.cardOpenAt.IsZero()
 	if !a.searchHandle.Focused(c) && a.page == "player" {
-		c.OnShortcut(0, ui.KeySpace, a.togglePause)
-		c.OnShortcut(0, ui.KeyK, func() { a.revealControls(); a.focusControls = true; a.controlsKeyboard = true })
-		c.OnShortcut(0, ui.KeyM, a.toggleMute)
-		c.OnShortcut(0, ui.KeyD, func() { a.toggleBarrage(); a.revealControls() })
+		c.OnShortcut(0, ui.KeySpace, viewer.togglePause)
+		c.OnShortcut(0, ui.KeyK, func() { viewer.revealControls(); viewer.focusControls = true; viewer.controlsKeyboard = true })
+		c.OnShortcut(0, ui.KeyM, viewer.toggleMute)
+		c.OnShortcut(0, ui.KeyD, func() { viewer.toggleBarrage(); viewer.revealControls() })
 	}
 	if openingRoom || !a.searchHandle.Focused(c) && a.page == "player" {
 		c.OnShortcut(0, ui.KeyEscape, func() {
@@ -105,9 +111,9 @@ func (a *app) view(c *ui.Context) {
 				a.toggleCompanion()
 				return
 			}
-			if a.playerMenuOpen() {
-				a.closePlayerMenus()
-				a.revealControls()
+			if viewer.playerMenuOpen() {
+				viewer.closePlayerMenus()
+				viewer.revealControls()
 			} else if a.win != nil && a.win.IsFullScreen() {
 				a.win.SetFullScreen(false)
 			} else {
@@ -376,7 +382,7 @@ func (a *app) nowPlayingCard(c *ui.Context) {
 				if a.stream != nil {
 					a.reloadStreamInPlace()
 				} else {
-					a.resolveRoom(r.Platform, r.ID, -1, true)
+					a.resolveRoom(r.Platform, r.ID, -1, roomOpenOptions{keepBrowsing: true})
 				}
 			}
 		})
@@ -553,11 +559,23 @@ func (a *app) selectTargetRoom(r platforms.Room) {
 		a.cancelReturnCapture()
 		a.cardOpenAt = time.Time{}
 		a.returnFrame = nil
+		a.roomDanmaku, a.roomChatPanel = nil, nil
 	}
 	a.targetRoom = r
 }
 
 func (a *app) playRoom(r platforms.Room) {
+	if a.page == "player" {
+		a.featuredViewer().playRoomHere(r)
+		return
+	}
+	a.playRoomHere(r)
+}
+
+func (a *app) playRoomHere(r platforms.Room) {
+	if r.Title == "" && r.ID != "" {
+		r.Title = "直播间 " + r.ID
+	}
 	a.selectTargetRoom(r)
 	a.resolve(r.Platform, r.ID, -1)
 }

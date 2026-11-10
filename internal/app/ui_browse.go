@@ -392,7 +392,7 @@ func (a *app) roomGrid(c *ui.Context, rooms []platforms.Room, skeleton, more boo
 							ui.Box(c).Height(10)
 						})
 					} else {
-						a.roomCard(c, rooms[i], coverHeight)
+						a.roomCard(c, rooms[i], coverHeight, false)
 					}
 				})
 			}
@@ -400,9 +400,10 @@ func (a *app) roomGrid(c *ui.Context, rooms []platforms.Room, skeleton, more boo
 	}).Grow(1).Padding(0, contentInset, 20, a.browseLeftInset(c))
 }
 
-func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {
+func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32, recommended bool) {
 	p := colors(c.Theme())
 	ui.Column(c.Key(string(r.Platform) + ":" + r.ID)).Gap(6).Children(func() {
+		menu := func(m *ui.Menu) { a.roomMenu(c, m, r, recommended) }
 		b := ui.ButtonBase(c.Key("open")).Column().AlignItems(ui.Stretch).Justify(ui.Start).WidthPercent(100).MinWidth(0).Gap(9).Radius(9).Label("播放 " + r.Anchor + " " + r.Title).Disabled(a.player == nil)
 		b.Children(func() {
 			ui.Box(c).Height(coverHeight).Radius(9).Background(p.soft).Children(func() {
@@ -432,7 +433,7 @@ func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {
 		if b.Clicked() {
 			a.playRoom(r)
 		}
-		b.ContextMenu(func(m *ui.Menu) { a.roomMenu(c, m, r) })
+		b.ContextMenu(menu)
 		ui.Row(c).Height(22).Gap(5).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, a.displayRoomName(r)).FontSize(11.5).TextColor(p.muted).SingleLine().Grow(1).MinWidth(0)
 			if a.library != nil {
@@ -442,6 +443,9 @@ func (a *app) roomCard(c *ui.Context, r platforms.Room, coverHeight float32) {
 				}
 				if iconButton(c.Key("follow"), icon, label).Size(25, 22).Clicked() {
 					a.toggleFavorite(r)
+				}
+				if recommended && a.homeRecommendationFilterEnabled() {
+					iconButton(c.Key("recommendation-actions"), iconMore, "推荐操作 · "+a.displayRoomName(r)).Size(25, 22).Menu(menu)
 				}
 			}
 		})
@@ -474,12 +478,17 @@ func roomURL(r platforms.Room) string {
 	return "https://live.bilibili.com/" + r.ID
 }
 
-func (a *app) roomMenu(c *ui.Context, m *ui.Menu, r platforms.Room) {
+func (a *app) roomMenu(c *ui.Context, m *ui.Menu, r platforms.Room, recommended bool) {
 	if m.Item("播放直播间").Disabled(a.player == nil).Chosen() {
 		a.playRoom(r)
 	}
-	if m.Item("新窗口观看").Disabled(a.player == nil || len(a.rootApp().extraWindows) >= maxExtraWindows).Chosen() {
+	if m.Item("新窗口观看").Disabled(a.player == nil || len(a.allPlaybackWindows()) > maxExtraWindows).Chosen() {
 		a.openExtraRoom(r)
+	}
+	if root := a.rootApp(); (a.parent == nil || a.embedded) && root.canAddSideRoom(r) {
+		if m.Item("在副画面播放").Chosen() {
+			root.openSideRoom(c, r)
+		}
 	}
 	if a.library != nil {
 		label := "关注直播间"
@@ -514,5 +523,11 @@ func (a *app) roomMenu(c *ui.Context, m *ui.Menu, r platforms.Room) {
 	}
 	if m.Item("在官网打开").Chosen() {
 		c.OpenURL(roomURL(r))
+	}
+	if recommended && a.homeRecommendationFilterEnabled() {
+		m.Separator()
+		if m.Item("少推荐这个主播").Chosen() {
+			a.hideRecommendation(c, r)
+		}
 	}
 }

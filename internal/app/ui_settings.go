@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"live-mygo/internal/accounts"
+	"live-mygo/internal/library"
 	"live-mygo/internal/platforms"
 	"live-mygo/internal/player"
 	"strings"
@@ -31,11 +32,15 @@ const (
 )
 
 type settingsState struct {
-	tab                         int
-	imported, message, selected string
-	manual                      bool
-	versionTaps                 int
-	backendRestartOpen          bool
+	tab                            int
+	imported, message, selected    string
+	manual                         bool
+	versionTaps                    int
+	backendRestartOpen             bool
+	backupFormat, backupLANAddress string
+	backupLANAddresses             []string
+	backupLAN                      *library.BackupTransfer
+	pendingLANBackup               []byte
 }
 
 func (a *app) accountsWindow() { a.settingsWindow(settingsAccounts) }
@@ -51,9 +56,12 @@ func (a *app) settingsWindow(initialTab int) {
 	}
 	a.settings.selected = "哔哩哔哩"
 	a.settings.imported = ""
+	a.settings.backupLANAddresses = library.BackupLANAddresses()
 	a.accountWin = mygo.NewWindow(mygo.WindowOptions{Title: "设置 · Live MyGo", StateKey: "settings", Width: 820, Height: 640, MinWidth: 760, MinHeight: 540, TitleBarStyle: mygo.TitleBarHidden, BackgroundColor: "light-dark(#ffffff,#171719)", Parent: a.win, Content: ui.View(a.settingsView)})
 	a.accountWin.OnClose(func(*mygo.CloseEvent) { a.settings.imported = "" })
 	a.accountWin.OnClosed(func() {
+		a.stopBackupLAN()
+		a.settings.pendingLANBackup = nil
 		if !a.closing && a.win != nil && !a.win.IsDestroyed() {
 			a.win.Focus()
 		}
@@ -257,6 +265,13 @@ func (a *app) generalSettings(c *ui.Context) {
 				}
 			})
 		})
+		settingsGroup(c, "首页", func() {
+			preferenceSwitch(c, true, "首页推荐筛选", a.homeRecommendationFilterEnabled(), func(value bool) {
+				next := a.library.Preferences
+				next.DisableHomeRecommendationFilter = !value
+				a.savePreferences(next)
+			})
+		})
 		a.backupSettings(c)
 		a.notificationSettings(c)
 		settingsGroup(c, "键盘快捷键", func() {
@@ -349,6 +364,12 @@ func (a *app) playbackSettings(c *ui.Context) {
 			ui.Text(c, "进入直播间时自动选择；平台缺少所选档位时会使用最接近的可用清晰度。").FontSize(10.5).TextColor(p.muted).MaxLines(3).Padding(0, 15, 14, 15)
 		})
 		settingsGroup(c, "观看", func() {
+			preferenceSwitch(c, true, "记住每个直播间的观看设置", !a.library.Preferences.DisableRoomPlaybackMemory, func(value bool) {
+				next := a.library.Preferences
+				next.DisableRoomPlaybackMemory = !value
+				a.savePreferences(next)
+			})
+			settingsDivider(c)
 			settingsRow(c, "只听声音", func() {
 				enabled := a.audioOnly()
 				if ui.Switch(c, &enabled).Label("只听声音").Disabled(a.audioModeChanging).Changed() {

@@ -250,7 +250,7 @@ func (a *app) queueCaptions(messages []platforms.ChatMessage) {
 func (a *app) clearFlyingChat() { a.captions = nil; a.pendingCaptions = nil }
 
 func (a *app) updateCaptionPreferences(before, after library.Preferences) {
-	if before.Danmaku && !after.Danmaku {
+	if a.roomPlaybackPreferences(before).Danmaku && !a.roomPlaybackPreferences(after).Danmaku {
 		a.clearFlyingChat()
 		return
 	}

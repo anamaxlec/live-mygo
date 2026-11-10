@@ -23,19 +23,27 @@ type recentChat struct {
 	At   time.Time
 }
 
-func (a *app) chatVisible() bool { return a.library != nil && a.library.Preferences.ChatPanel }
+func (a *app) chatVisible() bool {
+	return a.library != nil && a.roomPlaybackPreferences(a.library.Preferences).ChatPanel
+}
 func (a *app) barrageVisible() bool {
 	if a.parent != nil && a.companion {
 		return false
 	}
-	return a.targetRoom.Platform != platforms.FLive && a.library != nil && a.library.Preferences.Danmaku && !a.audioOnly()
+	return a.targetRoom.Platform != platforms.FLive && a.library != nil && a.roomPlaybackPreferences(a.library.Preferences).Danmaku && !a.audioOnly()
 }
 
 func (a *app) toggleChat() {
 	if a.library != nil {
-		next := a.library.Preferences
-		next.ChatPanel = !next.ChatPanel
-		a.savePreferences(next)
+		visible := !a.chatVisible()
+		if a.targetRoom.ID != "" {
+			a.roomChatPanel = &visible
+			a.rememberRoomPlayback(false)
+		} else {
+			next := a.library.Preferences
+			next.ChatPanel = visible
+			a.savePreferences(next)
+		}
 		a.revealControls()
 		a.fitWindowToVideo(false)
 	}
@@ -49,9 +57,18 @@ func (a *app) toggleBarrage() {
 		return
 	}
 	if a.library != nil {
-		next := a.library.Preferences
-		next.Danmaku = !next.Danmaku
-		a.savePreferences(next)
+		visible := !a.roomPlaybackPreferences(a.library.Preferences).Danmaku
+		if a.targetRoom.ID != "" {
+			a.roomDanmaku = &visible
+			a.rememberRoomPlayback(false)
+			if !visible {
+				a.clearFlyingChat()
+			}
+		} else {
+			next := a.library.Preferences
+			next.Danmaku = visible
+			a.savePreferences(next)
+		}
 		a.revealControls()
 	}
 }

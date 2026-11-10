@@ -71,6 +71,9 @@ func (a *app) publishMediaInfo() {
 }
 
 func (a *app) updateSystemPlayback() {
+	if a.systemPicture != nil {
+		a.systemPicture.SetPaused(a.stats.Paused)
+	}
 	if !a.ownsSystemMedia() {
 		return
 	}

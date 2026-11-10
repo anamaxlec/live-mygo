@@ -19,7 +19,7 @@ const (
 )
 
 func (a *app) classicReturn() bool {
-	return a.library != nil && a.library.Preferences.ClassicReturn
+	return a.hasSideViewer() || a.library != nil && a.library.Preferences.ClassicReturn
 }
 
 func returnCardScale(elapsed time.Duration) float32 {
@@ -252,6 +252,9 @@ func (a *app) openFromCard(c *ui.Context, bounds ui.Rect) {
 		a.pausedOnLeave = false
 		a.setPlaybackPaused(false, a.recoverCardPlayback)
 	}
+	if a.hasSideViewer() && a.sideViewer.pausedOnLeave {
+		a.sideViewer.setPlaybackPaused(false, nil)
+	}
 	if !a.shown {
 		a.recoverCardPlayback()
 	}
@@ -264,7 +267,7 @@ func (a *app) recoverCardPlayback() {
 	if a.stream != nil {
 		a.reloadStreamInPlace()
 	} else if a.targetRoom.ID != "" && a.status == "已取消连接" {
-		a.resolveRoom(a.targetRoom.Platform, a.targetRoom.ID, -1, true)
+		a.resolveRoom(a.targetRoom.Platform, a.targetRoom.ID, -1, roomOpenOptions{keepBrowsing: true})
 	}
 }
 

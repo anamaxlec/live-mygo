@@ -64,7 +64,15 @@ func (s *Surface) startRenderer(p *Player, lib uintptr) error {
 			ready <- fmt.Errorf("libmpv Render API 初始化失败：%s", p.api.errorString(rc))
 			return
 		}
-		defer func() { s.frameMu.Lock(); s.lock(s.context); free(ctx); s.unlock(s.context); s.frameMu.Unlock() }()
+		var picture glPictureTarget
+		defer func() {
+			s.frameMu.Lock()
+			s.lock(s.context)
+			picture.close()
+			free(ctx)
+			s.unlock(s.context)
+			s.frameMu.Unlock()
+		}()
 		callback := purego.NewCallback(func(_ uintptr) { s.callbacks.Add(1); s.notify() })
 		setUpdate(ctx, callback, 0)
 		defer setUpdate(ctx, 0, 0)
@@ -84,9 +92,10 @@ func (s *Surface) startRenderer(p *Player, lib uintptr) error {
 					continue
 				}
 				flags := update(ctx)
+				pictureRendered := flags&1 != 0 && picture.draw(s, ctx, render)
 				// update 也会处理截图等 GPU 请求，不能因遮挡或调整尺寸略过。
 				if !s.visible.Load() || s.resizePending.Load() {
-					if flags&1 != 0 {
+					if flags&1 != 0 && !pictureRendered {
 						skip := int32(1)
 						params := []renderParam{{Type: 13, Data: unsafe.Pointer(&skip)}, {}}
 						render(ctx, &params[0])

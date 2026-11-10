@@ -10,6 +10,9 @@ func (a *app) setAudioOnly(enabled bool) {
 	if a.library == nil || a.audioModeChanging || a.audioOnly() == enabled {
 		return
 	}
+	if enabled {
+		a.closeSystemPicture()
+	}
 	a.stopRecording()
 	apply := func() {
 		next := a.library.Preferences

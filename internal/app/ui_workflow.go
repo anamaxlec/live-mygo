@@ -186,6 +186,10 @@ func (a *app) chatResizeHandle(c *ui.Context, width, edge float32) {
 	}
 }
 func (a *app) closePlayback() {
+	if a.embedded {
+		a.parent.closeSideViewer(true)
+		return
+	}
 	if a.parent != nil {
 		a.quit()
 		return
@@ -253,6 +257,9 @@ func (a *app) sleepMenu(m *ui.Menu) {
 }
 func (a *app) toggleCompanion() {
 	if a.win == nil {
+		return
+	}
+	if a.closeSystemPicture() {
 		return
 	}
 	if a.win.IsFullScreen() {

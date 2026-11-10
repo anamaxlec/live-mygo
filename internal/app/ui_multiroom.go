@@ -23,7 +23,11 @@ func (a *app) rootApp() *app {
 
 func (a *app) allPlaybackWindows() []*app {
 	root := a.rootApp()
-	return append([]*app{root}, root.extraWindows...)
+	viewers := append([]*app{root}, root.extraWindows...)
+	if root.sideViewer != nil {
+		viewers = append(viewers, root.sideViewer)
+	}
+	return viewers
 }
 
 // 一个窗口取消静音时，将其他窗口静音，避免多路声音叠在一起。
@@ -48,18 +52,12 @@ func (a *app) openExtraRoom(room platforms.Room) {
 	if root.closing || root.win == nil {
 		return
 	}
-	if len(root.extraWindows) >= maxExtraWindows {
+	if len(root.allPlaybackWindows()) > maxExtraWindows {
 		a.toast = "最多同时观看三个直播间"
 		return
 	}
-	ctx, cancel := context.WithCancel(root.ctx)
-	child := &app{parent: root, ctx: ctx, cancel: cancel, library: root.library, vault: root.vault, client: platforms.NewClient(root.vault), opts: options{platform: string(room.Platform), room: room.ID, mute: true}, started: time.Now(), volume: root.volume, platformLabel: room.Platform.Name(), targetRoom: room, title: room.Title, page: "player", focusMode: true, companion: true, accountStatus: map[platforms.Platform]string{}, covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{}, coverSlots: make(chan struct{}, 4), categories: map[platforms.Platform][]platforms.Category{}, categoryLoading: map[platforms.Platform]bool{}, playerOps: make(chan func(*player.Player), 64)}
-	if child.volume == 0 {
-		child.volume = 60
-	}
-	if child.library != nil {
-		child.client.SetDouyuChatCompatibility(child.library.Preferences.DouyuLegacyTLS)
-	}
+	child := root.newRoomViewer(room)
+	child.companion = true
 	child.win = mygo.NewWindow(mygo.WindowOptions{Title: a.displayRoomName(room) + " · Live MyGo", Width: 640, Height: 360, MinWidth: 320, MinHeight: 210, TitleBarStyle: mygo.TitleBarHidden, TitleBarHeight: 58, TrafficLightPosition: &mygo.Point{X: 16, Y: 22}, Vibrancy: mygo.VibrancySidebar, BackgroundColor: "light-dark(#ffffff, #141416)", Content: ui.View(child.view)})
 	child.win.SetAlwaysOnTop(true)
 	child.win.OnResize(child.windowResized)
@@ -117,7 +115,7 @@ func (a *app) openExtraRoom(room platforms.Room) {
 	}
 	surface, err := player.NewSurface(child.win.NativeHandle(), backend)
 	if err != nil {
-		cancel()
+		child.cancel()
 		child.clean = true
 		child.win.Close()
 		a.toast = "无法创建播放窗口"
@@ -130,4 +128,24 @@ func (a *app) openExtraRoom(room platforms.Room) {
 	root.extraWindows = append(root.extraWindows, child)
 	child.refreshAccountStatus()
 	go child.runPlayer(surface)
+}
+
+func (a *app) newRoomViewer(room platforms.Room) *app {
+	ctx, cancel := context.WithCancel(a.ctx)
+	child := &app{
+		parent: a, ctx: ctx, cancel: cancel, library: a.library, vault: a.vault,
+		client: platforms.NewClient(a.vault), opts: options{platform: string(room.Platform), room: room.ID, mute: true},
+		started: time.Now(), volume: a.volume, platformLabel: room.Platform.Name(), targetRoom: room, title: room.Title,
+		page: "player", focusMode: true, accountStatus: map[platforms.Platform]string{},
+		covers: map[string]coverThumbnail{}, coverLoading: map[string]bool{}, coverSlots: make(chan struct{}, 4),
+		categories: map[platforms.Platform][]platforms.Category{}, categoryLoading: map[platforms.Platform]bool{},
+		playerOps: make(chan func(*player.Player), 64),
+	}
+	if child.volume == 0 {
+		child.volume = 60
+	}
+	if child.library != nil {
+		child.client.SetDouyuChatCompatibility(child.library.Preferences.DouyuLegacyTLS)
+	}
+	return child
 }

@@ -24,6 +24,8 @@ type bindings struct {
 	command     func(uintptr, unsafe.Pointer) int32
 	commandNode func(uintptr, unsafe.Pointer, unsafe.Pointer) int32
 	property    func(uintptr, string) unsafe.Pointer
+	getProperty func(uintptr, string, int32, unsafe.Pointer) int32
+	freeNode    func(*mpvNode)
 	free        func(unsafe.Pointer)
 	destroy     func(uintptr)
 	waitEvent   func(uintptr, float64) unsafe.Pointer
@@ -83,6 +85,7 @@ func newMPVPlayer(surface mpvSurface) (*Player, error) {
 	}{
 		{"mpv_create", &p.api.create}, {"mpv_initialize", &p.api.initialize}, {"mpv_set_option_string", &p.api.option},
 		{"mpv_command", &p.api.command}, {"mpv_get_property_string", &p.api.property}, {"mpv_free", &p.api.free},
+		{"mpv_get_property", &p.api.getProperty}, {"mpv_free_node_contents", &p.api.freeNode},
 		{"mpv_command_node", &p.api.commandNode},
 		{"mpv_terminate_destroy", &p.api.destroy}, {"mpv_wait_event", &p.api.waitEvent}, {"mpv_error_string", &p.api.errorString},
 	} {
@@ -96,8 +99,8 @@ func newMPVPlayer(surface mpvSurface) (*Player, error) {
 	if p.handle == 0 {
 		return nil, errors.New("无法创建 libmpv 播放器")
 	}
-	// 本地文件不需要流缓存；直播没有回看，前向缓存限制在 32MiB 并压缩后向缓存。
-	opts := [][2]string{{"config", "no"}, {"terminal", "no"}, {"msg-level", "all=no"}, {"input-default-bindings", "no"}, {"input-media-keys", "no"}, {"osc", "no"}, {"hwdec", "auto-safe"}, {"volume", "60"}, {"cache", "auto"}, {"cache-secs", "2"}, {"demuxer-readahead-secs", "2"}, {"demuxer-max-bytes", "32MiB"}, {"demuxer-max-back-bytes", "4MiB"}}
+	// 保留有限的压缩包缓存，让录制可从关键帧开始。本地文件仍无需等待网络缓冲。
+	opts := [][2]string{{"config", "no"}, {"terminal", "no"}, {"msg-level", "all=no"}, {"input-default-bindings", "no"}, {"input-media-keys", "no"}, {"osc", "no"}, {"hwdec", "auto-safe"}, {"volume", "60"}, {"cache", "auto"}, {"cache-secs", "2"}, {"demuxer-seekable-cache", "yes"}, {"demuxer-readahead-secs", "2"}, {"demuxer-max-bytes", "32MiB"}, {"demuxer-max-back-bytes", "4MiB"}}
 	if logPath := os.Getenv("LIVE_MYGO_MPV_LOG"); logPath != "" {
 		opts = append(opts, [2]string{"log-file", logPath}, [2]string{"msg-level", "all=v"})
 	}

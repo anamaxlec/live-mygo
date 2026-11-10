@@ -57,6 +57,7 @@ type app struct {
 	stats                                  player.Stats
 	stream                                 *platforms.Stream
 	targetRoom                             platforms.Room
+	roomDanmaku, roomChatPanel             *bool
 	accountWin                             *mygo.Window
 	settings                               settingsState
 	quick                                  quickSearchState
@@ -169,6 +170,10 @@ type app struct {
 	mediaCommandsOff                       func()
 	parent                                 *app
 	extraWindows                           []*app
+	sideViewer                             *app
+	sideFeatured                           bool
+	embedded                               bool
+	systemPicture                          systemPictureInPicture
 	mediaOwner                             *app
 	playerDone                             chan struct{}
 	captureBusy                            bool
@@ -234,16 +239,7 @@ func Run(version string) {
 	if a.library != nil {
 		a.client.SetDouyuChatCompatibility(a.library.Preferences.DouyuLegacyTLS)
 	}
-	a.page = "home"
-	if a.library != nil {
-		a.page = startupPage(a.library.Preferences.StartupPage)
-	}
-	if o.platform != "" {
-		a.page = startupPage(o.platform)
-	}
-	if o.platform == string(platforms.FLive) {
-		a.page = string(platforms.FLive)
-	}
+	a.page = initialPage(a.library, o)
 	if a.page == "huya" || a.page == "douyu" || a.page == "bilibili" || a.page == "douyin" || a.page == "qie" {
 		a.platformLabel = platforms.Platform(a.page).Name()
 	}
@@ -303,6 +299,9 @@ func (a *app) start() {
 		if a.surface != nil {
 			a.surface.Show(false)
 		}
+		if a.hasSideViewer() && a.sideViewer.player != nil {
+			a.sideViewer.surface.Show(false)
+		}
 	})
 	a.win.OnRestore(func() {
 		a.minimized = false
@@ -344,7 +343,7 @@ func (a *app) start() {
 	a.playerDone = make(chan struct{})
 	go a.runPlayer(s)
 	a.refreshAccountStatus()
-	if a.opts.file == "" && a.opts.room == "" && a.sessionToResume() == nil {
+	if a.page != "welcome" && a.opts.file == "" && a.opts.room == "" && a.sessionToResume() == nil {
 		a.loadCatalog(1)
 	}
 	a.loadCategories(a.platform())
@@ -445,10 +444,15 @@ func (a *app) platform() platforms.Platform {
 }
 
 func (a *app) resolve(source platforms.Platform, input string, quality int, route ...string) {
-	a.resolveRoom(source, input, quality, false, route...)
+	a.resolveRoom(source, input, quality, roomOpenOptions{}, route...)
 }
 
-func (a *app) resolveRoom(source platforms.Platform, input string, quality int, keepBrowsing bool, route ...string) {
+type roomOpenOptions struct {
+	keepBrowsing    bool
+	rememberQuality bool
+}
+
+func (a *app) resolveRoom(source platforms.Platform, input string, quality int, opts roomOpenOptions, route ...string) {
 	if a.reconnectTimer != nil {
 		a.reconnectTimer.Stop()
 		a.reconnectTimer = nil
@@ -460,7 +464,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 		return
 	}
 	a.stopRecording()
-	if a.page != "player" && !keepBrowsing {
+	if a.page != "player" && !opts.keepBrowsing {
 		a.rememberHomeCatalog()
 		a.returnPage = a.page
 		a.focusMode = true
@@ -484,7 +488,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 		}
 		a.title = a.targetRoom.Title
 	}
-	if !keepBrowsing {
+	if !opts.keepBrowsing {
 		a.page = "player"
 		a.transportHandle.Focus()
 	}
@@ -498,16 +502,23 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 	a.busy = true
 	a.status = "正在解析" + p.Name() + "直播间"
 	preference := platforms.QualityHighest
+	var roomPreferences map[string]library.RoomPlaybackPreferences
 	if a.library != nil {
 		preference = platforms.NormalizeQualityPreference(a.library.Preferences.DefaultQuality)
+		if !a.library.Preferences.DisableRoomPlaybackMemory {
+			roomPreferences = a.library.Preferences.RoomPlayback
+		}
 	}
 	if a.parent != nil {
 		preference = platforms.QualityHigh
 	}
+	if a.embedded && a.parent.featuredViewer() != a || a.hasSideViewer() && a.sideFeatured {
+		preference, roomPreferences = platforms.QualityHigh, nil
+	}
 	go func() {
 		s, err := a.client.Resolve(ctx, p, id, quality, route...)
 		if err == nil && quality < 0 {
-			if preferred, ok := platforms.PreferredQuality(s.Qualities, preference); ok && preferred != s.QualityID {
+			if preferred, ok := preferredRoomQuality(s, roomPreferences, preference); ok && preferred != s.QualityID {
 				// 平台默认档位不代表偏好档位，按偏好再取一次；平台拒绝时保留第一次结果。
 				if next, retryErr := a.client.Resolve(ctx, p, id, preferred, route...); retryErr == nil {
 					s = next
@@ -586,11 +597,17 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 					a.scheduleReconnect()
 					return
 				}
-				if !keepBrowsing {
+				if !opts.keepBrowsing {
 					a.page = "player"
 				}
 				if a.library != nil {
-					if err := a.library.WatchSession(s.Room, s.QualityID, s.SourceID); err != nil {
+					var err error
+					if a.embedded || a.hasSideViewer() && a.sideFeatured {
+						err = a.library.Watch(s.Room)
+					} else {
+						err = a.library.WatchSession(s.Room, s.QualityID, s.SourceID)
+					}
+					if err != nil {
 						log.Print("保存观看历史失败：", err)
 					}
 				}
@@ -599,6 +616,10 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 					if q.ID == s.QualityID {
 						a.qualityLabel = q.Name
 					}
+				}
+				rememberQuality := opts.rememberQuality && s.QualityID == quality
+				if rememberQuality || a.roomDanmaku != nil || a.roomChatPanel != nil {
+					a.rememberRoomPlayback(rememberQuality)
 				}
 				if quality >= 0 && s.QualityID != quality {
 					actual := a.qualityLabel
@@ -616,10 +637,10 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 				a.decodedMS = 0
 
 				a.status = "正在连接直播流"
-				if !keepBrowsing {
+				if !opts.keepBrowsing {
 					a.transportHandle.Focus()
 				}
-				if a.parent == nil || !a.companion {
+				if a.rootApp().featuredViewer() == a || a.parent != nil && !a.embedded && !a.companion {
 					a.startChat(false)
 				}
 			})
@@ -661,6 +682,10 @@ func (a *app) command(args ...string) {
 	})
 }
 func (a *app) stop() {
+	a.closeSystemPicture()
+	if a.parent == nil {
+		a.closeSideViewer(false)
+	}
 	a.cancelReturnCapture()
 	a.cardOpenAt = time.Time{}
 	a.returnFrame = nil
@@ -680,6 +705,7 @@ func (a *app) stop() {
 	a.shown = false
 	a.stream = nil
 	a.targetRoom = platforms.Room{}
+	a.roomDanmaku, a.roomChatPanel = nil, nil
 	a.title = "输入房间号或直播间链接"
 	a.status = "已停止"
 	a.updateSystemPlayback()
@@ -756,12 +782,16 @@ func (a *app) quit() {
 	if a.closing {
 		return
 	}
+	a.closeSystemPicture()
 	a.closing = true
 	if a.recordingTimer != nil {
 		a.recordingTimer.Stop()
 		a.recordingTimer = nil
 	}
 	children := append([]*app(nil), a.extraWindows...)
+	if a.sideViewer != nil {
+		children = append(children, a.sideViewer)
+	}
 	for _, child := range children {
 		child.quit()
 	}
@@ -789,7 +819,7 @@ func (a *app) quit() {
 			}
 		}
 	}
-	if a.library != nil {
+	if a.library != nil && !a.embedded {
 		prefs := a.library.Preferences
 		if !a.opts.mute {
 			prefs.Volume = a.volume
@@ -811,7 +841,9 @@ func (a *app) quit() {
 		}
 		a.win.Update(func() {
 			a.clean = true
-			if a.parent != nil {
+			if a.embedded {
+				a.parent.removeSideViewer(a)
+			} else if a.parent != nil {
 				a.win.Close()
 			} else if a.restartAfterClose {
 				mygo.App.Relaunch()

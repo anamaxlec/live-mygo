@@ -26,9 +26,9 @@ func (a *app) applyTheme(c *ui.Context) {
 	c.SetTheme(t)
 }
 
-func (a *app) savePreferences(next library.Preferences) {
+func (a *app) savePreferences(next library.Preferences) bool {
 	if a.library == nil {
-		return
+		return false
 	}
 	before := a.library.Preferences
 	if err := a.library.SetPreferences(next); err != nil {
@@ -36,17 +36,17 @@ func (a *app) savePreferences(next library.Preferences) {
 		if a.win != nil {
 			a.win.Invalidate()
 		}
-		return
+		return false
 	}
 	a.applySavedPreferences(before, next)
+	return true
 }
 
 func (a *app) applySavedPreferences(before, next library.Preferences) {
 	root := a.rootApp()
-	root.applyLocalPreferences(before, next)
-	for _, child := range root.extraWindows {
-		if !child.closing {
-			child.applyLocalPreferences(before, next)
+	for _, viewer := range root.allPlaybackWindows() {
+		if !viewer.closing {
+			viewer.applyLocalPreferences(before, next)
 		}
 	}
 }
@@ -117,6 +117,14 @@ func (a *app) leavePlayer() {
 	if a.library != nil && a.library.Preferences.PauseWhenBrowsing && a.shown && !a.stats.Paused {
 		a.togglePause()
 		a.pausedOnLeave = true
+	}
+	if a.hasSideViewer() && a.sideViewer.player != nil {
+		side := a.sideViewer
+		side.surface.Show(false)
+		if a.library != nil && a.library.Preferences.PauseWhenBrowsing && side.shown && !side.stats.Paused {
+			side.setPlaybackPaused(true, nil)
+			side.pausedOnLeave = true
+		}
 	}
 }
 

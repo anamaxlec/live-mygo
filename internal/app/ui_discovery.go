@@ -49,6 +49,9 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 					a.pendingPage = page
 					c.After(time.Nanosecond)
 				}
+				if key == "recommend-heading" {
+					a.recommendationSettings(c)
+				}
 			})
 		}})
 	}
@@ -73,7 +76,7 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 					ui.Column(c.Key(roomKey(r))).Width(cardWidth).MinWidth(0).Children(func() {
 						if large {
 							// 关注中且正在直播的内容与推荐卡片同级，首页第一眼就能看到。
-							a.roomCard(c, r, cardWidth*9/16)
+							a.roomCard(c, r, cardWidth*9/16, false)
 							return
 						}
 						a.personalRoom(c, r, false)
@@ -101,7 +104,7 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 			personal("recent", "最近观看", "history", recent, false)
 		}
 	}
-	recommended := rooms
+	recommended := a.visibleRecommendations(rooms)
 	recommendationTitle := a.platform().Name() + "推荐"
 	if a.page == "home" {
 		recommendationTitle = "为你推荐"
@@ -145,7 +148,7 @@ func (a *app) discoveryView(c *ui.Context, rooms []platforms.Room) {
 					for col := 0; col < columns; col++ {
 						ui.Column(c.Key(col)).Grow(1).Basis(0).MinWidth(0).Children(func() {
 							if index+col < end {
-								a.roomCard(c, recommended[index+col], coverHeight)
+								a.roomCard(c, recommended[index+col], coverHeight, a.page == "home")
 							}
 						})
 					}
@@ -190,7 +193,7 @@ func (a *app) personalRoom(c *ui.Context, r platforms.Room, live bool) {
 	if b.Clicked() {
 		a.playRoom(r)
 	}
-	b.ContextMenu(func(m *ui.Menu) { a.roomMenu(c, m, r) })
+	b.ContextMenu(func(m *ui.Menu) { a.roomMenu(c, m, r, false) })
 }
 func (a *app) featuredRoom(c *ui.Context, r platforms.Room, width float32) {
 	p := colors(c.Theme())
@@ -212,6 +215,11 @@ func (a *app) featuredRoom(c *ui.Context, r platforms.Room, width float32) {
 		if b.Clicked() {
 			a.playRoom(r)
 		}
-		b.ContextMenu(func(m *ui.Menu) { a.roomMenu(c, m, r) })
+		recommended := a.page == "home"
+		menu := func(m *ui.Menu) { a.roomMenu(c, m, r, recommended) }
+		b.ContextMenu(menu)
+		if recommended && a.homeRecommendationFilterEnabled() {
+			iconButton(c.Key("featured-recommendation-actions"), iconMore, "推荐操作 · "+a.displayRoomName(r)).Size(26, 24).Absolute().Top(8).Right(8).Menu(menu)
+		}
 	})
 }

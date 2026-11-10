@@ -30,6 +30,7 @@ import (
 const vtBackendAvailable = true
 
 type VTSurface struct {
+	pictureInPictureSlot
 	keepAspect        atomic.Bool
 	fillVideo         atomic.Bool
 	view              unsafe.Pointer
@@ -129,7 +130,8 @@ func (s *VTSurface) present(frame unsafe.Pointer) bool {
 	if frame == nil {
 		return false
 	}
-	if C.vt_view_present(s.view, frame) == 0 {
+	picturePresented := s.enqueuePicture(frame)
+	if !(s.visible.Load() && C.vt_view_present(s.view, frame) != 0) && !picturePresented {
 		return false
 	}
 	s.rendered.Add(1)
@@ -572,7 +574,7 @@ func (p *vtPlayer) renderLoop(ctx context.Context, core *C.VTCore) {
 			next = 100 * time.Millisecond
 			continue
 		}
-		visible := p.surface.visible.Load()
+		visible := p.surface.visible.Load() || p.surface.pictureInPictureVisible()
 		if visible && !wasVisible {
 			p.mu.Lock()
 			p.lastFrameAt = time.Now()

@@ -16,7 +16,9 @@ type State struct {
 	FavoriteDetails map[string]FavoriteDetails `json:"favorite_details,omitempty"`
 	LastSession     *PlaybackSession           `json:"last_session,omitempty"`
 	WindowStates    json.RawMessage            `json:"window_states,omitempty"`
-	path            string
+
+	WelcomeCompleted bool `json:"welcome_completed"`
+	path             string
 }
 
 type PlaybackSession struct {
@@ -30,6 +32,13 @@ type FavoriteDetails struct {
 	Group  string `json:"group,omitempty"`
 	Pinned bool   `json:"pinned,omitempty"`
 	Notify bool   `json:"notify,omitempty"`
+}
+
+type RoomPlaybackPreferences struct {
+	Quality     int    `json:"quality"`
+	QualityName string `json:"quality_name,omitempty"`
+	Danmaku     bool   `json:"danmaku"`
+	ChatPanel   bool   `json:"chat_panel"`
 }
 
 type Preferences struct {
@@ -77,6 +86,11 @@ type Preferences struct {
 	DanmakuMerge      bool          `json:"danmaku_merge"`
 	DanmakuColor      string        `json:"danmaku_color"`
 	DanmakuArea       float64       `json:"danmaku_area"`
+
+	RoomPlayback                    map[string]RoomPlaybackPreferences `json:"room_playback,omitempty"`
+	HiddenHomeRooms                 map[string]bool                    `json:"hidden_home_rooms,omitempty"`
+	DisableRoomPlaybackMemory       bool                               `json:"disable_room_playback_memory,omitempty"`
+	DisableHomeRecommendationFilter bool                               `json:"disable_home_recommendation_filter,omitempty"`
 }
 
 type BlockedUser struct {
@@ -94,10 +108,24 @@ func Load(path string) (*State, error) {
 	if err != nil {
 		return s, err
 	}
+	// 已有配置的用户继续使用原启动页。新安装记录完成状态后才跳过欢迎页。
+	s.WelcomeCompleted = true
 	if err = json.Unmarshal(data, s); err == nil {
 		s.Preferences.DefaultQuality = platforms.NormalizeQualityPreference(s.Preferences.DefaultQuality)
 	}
 	return s, err
+}
+
+func (s *State) CompleteWelcome() error {
+	if s.WelcomeCompleted {
+		return nil
+	}
+	s.WelcomeCompleted = true
+	if err := s.save(); err != nil {
+		s.WelcomeCompleted = false
+		return err
+	}
+	return nil
 }
 func (s *State) Has(r platforms.Room) bool {
 	for _, v := range s.Favorites {

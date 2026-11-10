@@ -78,11 +78,12 @@ func (a *app) saveCapture(record bool) {
 			if filepath.Ext(path) == "" {
 				path += extension
 			}
-			args := []string{"screenshot-to-file", path, "video"}
-			if record {
-				args = []string{"set", "stream-record", path}
-			}
-			a.doPlayer(func(p *player.Player) error { return p.Command(args...) }, func(err error) {
+			a.doPlayer(func(p *player.Player) error {
+				if record {
+					return p.StartRecording(path)
+				}
+				return p.Command("screenshot-to-file", path, "video")
+			}, func(err error) {
 				a.captureBusy = false
 				if err != nil {
 					a.toast = label + "失败：" + err.Error()
@@ -123,7 +124,9 @@ func (a *app) stopRecording() {
 		return
 	}
 	a.recordingPath, a.recordingUntil = "", time.Time{}
-	a.doPlayer(func(p *player.Player) error { return p.Command("set", "stream-record", "") }, func(err error) {
+	a.captureBusy = true
+	a.doPlayer(func(p *player.Player) error { return p.StopRecording(path) }, func(err error) {
+		a.captureBusy = false
 		if err != nil {
 			a.toast = "片段未完整保存：" + err.Error()
 			return

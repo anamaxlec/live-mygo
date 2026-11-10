@@ -24,6 +24,7 @@ type rect struct {
 
 // MyGo 继续绘制原生 UI；视频通过 libmpv Render API 绘制到独立的原生 GL 视图。
 type Surface struct {
+	pictureInPictureSlot
 	view, parent, window objc.ID
 	context              uintptr
 	nativeContext        objc.ID

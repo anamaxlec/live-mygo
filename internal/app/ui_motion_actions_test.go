@@ -27,6 +27,22 @@ func TestBackupActionsUseSettingsInsetsAndEqualButtonGeometry(t *testing.T) {
 	}
 }
 
+func TestBackupTransferRequiresLocalConfirmation(t *testing.T) {
+	a := polishApp(t)
+	a.settings.pendingLANBackup = []byte(`[{"siteId":"douyu","roomId":"123"}]`)
+	room := platforms.Room{Platform: platforms.Douyu, ID: "123"}
+	tester := ui.NewTester(func(c *ui.Context) { a.backupSettings(c) }, 560, 290)
+	if a.library.Has(room) {
+		t.Fatal("待确认的关注已经写入")
+	}
+	if err := tester.Click("确认导入"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.library.Has(room) || len(a.settings.pendingLANBackup) > 0 {
+		t.Fatal("确认后未导入关注，或仍保留待处理文件")
+	}
+}
+
 func TestChatEnvelopeKeepsNewMessagesInteractiveAndStopsAnimating(t *testing.T) {
 	for _, reduced := range []bool{false, true} {
 		a := polishApp(t)

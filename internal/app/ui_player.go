@@ -52,6 +52,10 @@ func watchGeometry(width, height, header, sidebar, chat float32) watchLayout {
 }
 
 func (a *app) contentView(c *ui.Context) {
+	viewer := a.featuredViewer()
+	if a.snap {
+		viewer = a
+	}
 	full := !a.snap && a.win != nil && a.win.IsFullScreen()
 	header, sidebar := float32(0), float32(0)
 	if !full {
@@ -67,7 +71,7 @@ func (a *app) contentView(c *ui.Context) {
 	}
 	root := ui.Column(c.Key("watch-layout")).Fill()
 	target := float32(0)
-	if a.chatVisible() {
+	if viewer.chatVisible() {
 		target = a.chatWidth(c, sidebar)
 	}
 	duration := 220 * time.Millisecond
@@ -119,18 +123,18 @@ func (a *app) contentView(c *ui.Context) {
 			frame.Children(func() {
 				ui.Column(c).Fill().Padding(edge).Radius(radius).Clip().Children(func() {
 					ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-						a.videoView(c, layout.Video)
-						ui.Box(c.Key("chat-reveal")).Width(chatWidth).Shrink(0).FillHeight().Radius(0, max(0, radius-edge), max(0, radius-edge), 0).Clip().Hidden(chatWidth < .1).Children(func() { a.chatView(c, chatWidth) })
+						a.splitVideoView(c, layout.Video)
+						ui.Box(c.Key("chat-reveal")).Width(chatWidth).Shrink(0).FillHeight().Radius(0, max(0, radius-edge), max(0, radius-edge), 0).Clip().Hidden(chatWidth < .1).Children(func() { viewer.chatView(c, chatWidth) })
 					})
 				})
 				if chatWidth > 0 {
 					a.chatResizeHandle(c, chatWidth, edge)
 				}
-				if chatWidth < .1 && a.connectionPending(false) {
+				if chatWidth < .1 && viewer.connectionPending(false) {
 					ui.Box(c.Key("video-connection-layer")).Absolute().Top(12).Right(12).
 						Bottom(transportBottom + transportHeight(layout.Video.W) + 12).
 						Width(min(280, max(1, layout.Video.W-24))).Justify(ui.End).PassThrough().
-						Children(func() { a.connectionCard(c) })
+						Children(func() { viewer.connectionCard(c) })
 				}
 				if !full {
 					ui.Box(c.Key("watch-frame-edge")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Radius(radius).PassThrough().Role(ui.RoleNone).Draw(func(painter *ui.Painter, r ui.Rect) {
@@ -187,6 +191,10 @@ func watchHeaderInset(c *ui.Context, sidebar float32) float32 {
 }
 
 func (a *app) watchHeader(c *ui.Context) {
+	viewer := a.featuredViewer()
+	if a.snap {
+		viewer = a
+	}
 	p := colors(c.Theme())
 	sidebar := sidebarWidth
 	if a.focusMode && !a.navMeasured {
@@ -223,9 +231,9 @@ func (a *app) watchHeader(c *ui.Context) {
 		})
 		ui.Box(c).Width(gap).Shrink(0)
 		ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-			ui.Text(c, a.title).FontSize(13.5).FontWeight(600).TextColor(p.text).SingleLine()
+			ui.Text(c, viewer.title).FontSize(13.5).FontWeight(600).TextColor(p.text).SingleLine()
 			var meta []string
-			for _, text := range []string{a.targetRoom.Platform.Name(), a.targetRoom.Anchor, a.targetRoom.Category} {
+			for _, text := range []string{viewer.targetRoom.Platform.Name(), viewer.targetRoom.Anchor, viewer.targetRoom.Category} {
 				if text != "" {
 					meta = append(meta, text)
 				}
@@ -234,41 +242,45 @@ func (a *app) watchHeader(c *ui.Context) {
 				ui.Text(c, strings.Join(meta, " · ")).FontSize(10.5).TextColor(p.muted).SingleLine()
 			}
 		})
-		if a.connectionBusy() {
+		if viewer.connectionBusy() {
 			ui.Spinner(c).Size(12, 12).MarginX(6)
 		}
-		if a.recordingPath != "" {
-			ui.Text(c, a.recordingLabel()).FontSize(11).TextColor(p.danger).MarginX(6)
+		if viewer.recordingPath != "" {
+			ui.Text(c, viewer.recordingLabel()).FontSize(11).TextColor(p.danger).MarginX(6)
 		}
 		if iconButton(c.Key("watch-search"), iconSearch, shortcutLabel("快捷搜索直播 · ⌘L")).Clicked() {
 			a.openQuickSearch()
 		}
-		if a.stream != nil && a.library != nil {
+		if viewer.stream != nil && a.library != nil {
 			icon, label := iconHeart, "关注直播间"
-			if a.library.Has(a.stream.Room) {
+			if a.library.Has(viewer.stream.Room) {
 				icon, label = iconHeartFilled, "取消关注"
 			}
 			if iconButton(c.Key("watch-follow"), icon, label).Clicked() {
-				a.toggleFavorite(a.stream.Room)
+				a.toggleFavorite(viewer.stream.Room)
 			}
 		}
 		more := iconButton(c.Key("room-options"), iconMore, "直播间选项")
 		more.Menu(func(m *ui.Menu) {
-			a.captureMenu(m)
+			viewer.captureMenu(m)
 			m.Separator()
-			if m.Item("只听声音").Checked(a.audioOnly()).Disabled(a.audioModeChanging).Chosen() {
-				a.setAudioOnly(!a.audioOnly())
+			if m.Item("系统画中画").Checked(viewer.systemPicture != nil).Disabled(viewer.systemPicture == nil && !viewer.canOpenSystemPicture()).Chosen() {
+				viewer.toggleSystemPicture()
 			}
-			if m.Item("回到实时").Disabled(a.stream == nil || a.busy).Chosen() {
-				a.reloadStream()
+			if m.Item("只听声音").Checked(viewer.audioOnly()).Disabled(viewer.audioModeChanging).Chosen() {
+				viewer.setAudioOnly(!viewer.audioOnly())
+			}
+			if m.Item("回到实时").Disabled(viewer.stream == nil || viewer.busy).Chosen() {
+				viewer.reloadStream()
 			}
 			m.Separator()
 			if a.library != nil && m.Item("窗口跟随画面比例").Checked(a.library.Preferences.FollowVideo).Chosen() {
 				a.toggleFollowVideo()
 			}
-			if a.targetRoom.ID != "" {
+			viewer.roomPreferencesMenu(m)
+			if viewer.targetRoom.ID != "" {
 				m.Separator()
-				a.roomMenu(c, m, a.targetRoom)
+				viewer.roomMenu(c, m, viewer.targetRoom, false)
 			}
 			m.Separator()
 			if m.Item("结束观看").Chosen() {
@@ -377,7 +389,11 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 				}
 				ui.Text(c, a.title).FontSize(13).FontWeight(500).TextColor(ui.RGB(255, 255, 255)).SingleLine().Grow(1).MinWidth(0)
 				if a.mediaButton(c, iconSearch, shortcutLabel("快捷搜索直播 · ⌘L")).Clicked() {
-					a.openQuickSearch()
+					if a.embedded {
+						a.parent.openQuickSearch()
+					} else {
+						a.openQuickSearch()
+					}
 				}
 			})
 		}
@@ -396,6 +412,9 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 }
 
 func (a *app) surfaceShouldShow() bool {
+	if a.embedded {
+		return !a.closing && a.parent.page == "player" && !a.parent.minimized && a.shown && !a.audioOnly()
+	}
 	inPlayer := a.page == "player" || !a.cardOpenAt.IsZero()
 	handoff := a.returnShrink && a.returnShrinkAt.IsZero()
 	return (inPlayer || handoff) && a.shown && !a.minimized && !a.audioOnly()
@@ -575,7 +594,7 @@ func (a *app) streamControls(c *ui.Context) {
 		}
 		a.mediaPopover(c, settings, &a.danmakuOpen, 320, func() { a.barrageSettings(c) })
 	}
-	if a.mediaButton(c.Key("companion"), iconCompanion, "工作陪伴小窗").Disabled(!a.shown).Clicked() {
+	if a.mediaButton(c.Key("companion"), iconCompanion, "工作陪伴小窗").Disabled(!a.shown || a.embedded || a.hasSideViewer()).Clicked() {
 		a.closePlayerMenus()
 		a.toggleCompanion()
 	}
@@ -666,7 +685,7 @@ func (a *app) qualitySelector(c *ui.Context) {
 				for _, q := range a.stream.Qualities {
 					if popupChoice(c.Key(q.ID), q.Name, "", q.ID == a.stream.QualityID).Clicked() {
 						a.qualityOpen = false
-						a.resolve(a.stream.Room.Platform, a.stream.Room.ID, q.ID, a.stream.SourceID)
+						a.resolveRoom(a.stream.Room.Platform, a.stream.Room.ID, q.ID, roomOpenOptions{rememberQuality: true}, a.stream.SourceID)
 					}
 				}
 			})
@@ -820,6 +839,6 @@ func (a *app) reloadStreamInPlace() {
 	if a.stream != nil {
 		r := a.stream
 		a.reconnectAttempts = 0
-		a.resolveRoom(r.Room.Platform, r.Room.ID, r.QualityID, true, r.SourceID)
+		a.resolveRoom(r.Room.Platform, r.Room.ID, r.QualityID, roomOpenOptions{keepBrowsing: true}, r.SourceID)
 	}
 }

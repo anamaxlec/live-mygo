@@ -91,7 +91,7 @@ func fittedWindow(width, height int, aspect float64, side, header, maxWidth, max
 }
 
 func (a *app) fitWindowToVideo(preferWidth bool) {
-	if a.win == nil || a.closing || a.aspectBusy || a.companion {
+	if a.win == nil || a.closing || a.aspectBusy || a.companion || a.embedded || a.hasSideViewer() {
 		return
 	}
 	current := a.win.ContentBounds()

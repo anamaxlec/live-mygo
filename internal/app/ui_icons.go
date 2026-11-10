@@ -50,6 +50,7 @@ var (
 	iconMore            = lucide("ellipsis")
 	iconChat            = lucide("message-square")
 	iconDanmaku         = lucide("captions")
+	iconSwap            = ui.MustParseSVG([]byte(`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16m-4-4 4 4-4 4M20 16H4m4-4-4 4 4 4"/></svg>`))
 	iconDanmakuOff      = lucide("captions-off")
 	iconPanelRightOpen  = lucide("panel-right-open")
 	iconPanelRightClose = lucide("panel-right-close")

@@ -55,3 +55,33 @@ func TestBackupMergesFavoritesAndPreservesCredentialsBoundary(t *testing.T) {
 		t.Fatal("备份包含观看历史")
 	}
 }
+
+func TestBackupMergesRoomPlaybackAndHiddenRecommendations(t *testing.T) {
+	source, _ := Load(filepath.Join(t.TempDir(), "library.json"))
+	key := "douyu:7"
+	view := RoomPlaybackPreferences{Quality: 2, QualityName: "高清", ChatPanel: true}
+	source.Preferences.RoomPlayback = map[string]RoomPlaybackPreferences{key: view}
+	source.Preferences.HiddenHomeRooms = map[string]bool{key: true}
+	backup, err := source.Backup()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, _ := Load(filepath.Join(t.TempDir(), "library.json"))
+	other := "huya:7"
+	target.Preferences.RoomPlayback = map[string]RoomPlaybackPreferences{other: {Quality: 4}}
+	target.Preferences.HiddenHomeRooms = map[string]bool{other: true}
+	if err := target.ImportBackup(backup); err != nil {
+		t.Fatal(err)
+	}
+	if target.Preferences.RoomPlayback[key] != view || target.Preferences.RoomPlayback[other].Quality != 4 ||
+		!target.Preferences.HiddenHomeRooms[key] || !target.Preferences.HiddenHomeRooms[other] {
+		t.Fatal("备份没有合并房间偏好和首页筛选")
+	}
+	if err := target.ImportBackup([]byte(`{"preferences":{"room_playback":{"douyu:7":{"quality":9}},"hidden_home_rooms":{"douyu:7":false}},"favorites":[{"platform":"unknown","id":"1"}]}`)); err == nil {
+		t.Fatal("无效备份未被拒绝")
+	}
+	if target.Preferences.RoomPlayback[key] != view || !target.Preferences.HiddenHomeRooms[key] {
+		t.Fatal("导入失败覆盖了当前偏好")
+	}
+}

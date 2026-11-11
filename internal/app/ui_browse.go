@@ -482,8 +482,11 @@ func (a *app) roomMenu(c *ui.Context, m *ui.Menu, r platforms.Room, recommended 
 	if m.Item("播放直播间").Disabled(a.player == nil).Chosen() {
 		a.playRoom(r)
 	}
-	if m.Item("新窗口观看").Disabled(a.player == nil || len(a.allPlaybackWindows()) > maxExtraWindows).Chosen() {
+	if m.Item("新窗口观看").Disabled(a.player == nil || a.extraWindowLimitReached()).Chosen() {
 		a.openExtraRoom(r)
+	}
+	if m.Item("加入监控室").Disabled(a.library == nil).Chosen() {
+		a.rootApp().addMonitorRoom(r)
 	}
 	if root := a.rootApp(); (a.parent == nil || a.embedded) && root.canAddSideRoom(r) {
 		if m.Item("在副画面播放").Chosen() {

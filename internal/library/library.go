@@ -16,9 +16,30 @@ type State struct {
 	FavoriteDetails map[string]FavoriteDetails `json:"favorite_details,omitempty"`
 	LastSession     *PlaybackSession           `json:"last_session,omitempty"`
 	WindowStates    json.RawMessage            `json:"window_states,omitempty"`
+	Monitor         *MonitorState              `json:"monitor,omitempty"`
 
 	WelcomeCompleted bool `json:"welcome_completed"`
 	path             string
+}
+
+type MonitorState struct {
+	Rooms    []platforms.Room               `json:"rooms"`
+	Audible  map[string]bool                `json:"audible,omitempty"`
+	Audio    string                         `json:"audio,omitempty"`
+	Layout   map[string]MonitorRect         `json:"layout,omitempty"`
+	Settings map[string]MonitorRoomSettings `json:"settings,omitempty"`
+}
+
+type MonitorRect struct {
+	X float32 `json:"x"`
+	Y float32 `json:"y"`
+	W float32 `json:"w"`
+	H float32 `json:"h"`
+}
+
+type MonitorRoomSettings struct {
+	Volume  *float64 `json:"volume,omitempty"`
+	Danmaku bool     `json:"danmaku,omitempty"`
 }
 
 type PlaybackSession struct {
@@ -235,6 +256,16 @@ func (s *State) SetPreferences(next Preferences) error {
 	s.Preferences = next
 	if err := s.save(); err != nil {
 		s.Preferences = previous
+		return err
+	}
+	return nil
+}
+
+func (s *State) SetMonitor(next MonitorState) error {
+	previous := s.Monitor
+	s.Monitor = &next
+	if err := s.save(); err != nil {
+		s.Monitor = previous
 		return err
 	}
 	return nil

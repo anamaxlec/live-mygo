@@ -4,7 +4,9 @@ package app
 
 import "live-mygo/internal/player"
 
-func (a *app) audioOnly() bool { return a.library != nil && a.library.Preferences.AudioOnly }
+func (a *app) audioOnly() bool {
+	return a.monitorKey == "" && a.library != nil && a.library.Preferences.AudioOnly
+}
 
 func (a *app) setAudioOnly(enabled bool) {
 	if a.library == nil || a.audioModeChanging || a.audioOnly() == enabled {

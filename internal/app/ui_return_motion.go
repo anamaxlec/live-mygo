@@ -19,7 +19,7 @@ const (
 )
 
 func (a *app) classicReturn() bool {
-	return a.hasSideViewer() || a.library != nil && a.library.Preferences.ClassicReturn
+	return a.immersive || a.hasSideViewer() || a.library != nil && a.library.Preferences.ClassicReturn
 }
 
 func returnCardScale(elapsed time.Duration) float32 {
@@ -142,48 +142,6 @@ func (fx returnToCardEffect) PaintEffect(p *ui.Painter, box ui.Rect, content *ui
 		to := ui.Rect{X: left, Y: float32(y) / scale, W: right - left, H: 1 / scale}
 		p.ImageRegion(content, from, to, tint)
 	}
-}
-
-func (fx returnToCardEffect) shadowView(c *ui.Context) {
-	if fx.reduced {
-		return
-	}
-	width, height := c.Size()
-	// 软影以半尺寸绘制，模糊后放大，减少高 DPI 下的离屏纹理面积。
-	ui.Box(c.Key("return-to-card-shadow")).Absolute().Left(0).Top(0).Size(width/2, height/2).
-		TransformOrigin(0, 0).Scale(2, 2).PassThrough().Role(ui.RoleNone).Blur(5).
-		Draw(func(p *ui.Painter, box ui.Rect) {
-			t := float32(p.Now().Sub(fx.start)) / float32(fx.duration)
-			if fx.opening {
-				t = 1 - t
-			}
-			card := *fx.card
-			if t >= .92 || card.W <= 1 || card.H <= 1 {
-				return
-			}
-			if !fx.opening {
-				p.AnimationFrameRate(60)
-			}
-			alpha := .42 * ui.EaseOut(motionPart(t, 0, .25)) * (1 - ui.EaseInOut(motionPart(t, .70, .92)))
-			if alpha <= 0 {
-				return
-			}
-			// Blur 将绘制坐标移入带边距的纹理，两套轮廓使用同一坐标原点。
-			card = ui.Rect{X: box.X + card.X/2, Y: box.Y + card.Y/2, W: card.W / 2, H: card.H / 2}
-			shape := cardShapeAt(box, card, t)
-			const segments = 32
-			const offsetX, offsetY = 1, 4
-			var path ui.Path
-			left, _ := shape.edges(0)
-			path.MoveTo(left+offsetX, shape.top+offsetY).
-				LineTo(left+offsetX, shape.bottom+offsetY)
-			for i := segments; i >= 0; i-- {
-				v := float32(i) / segments
-				_, right := shape.edges(v)
-				path.LineTo(right+offsetX, shape.top+(shape.bottom-shape.top)*v+offsetY)
-			}
-			p.FillPath(path.Close(), ui.RGBA(0, 0, 0, alpha))
-		})
 }
 
 func (a *app) returnShrinkView(c *ui.Context) {
@@ -350,9 +308,6 @@ func (a *app) playerMotionSheet(c *ui.Context, fx returnToCardEffect, nav, chat 
 	p := colors(c.Theme())
 	a.snap, a.snapNav, a.snapChat = true, nav, chat
 	ui.Overlay(c, func() {
-		if !initial {
-			fx.shadowView(c)
-		}
 		sheet := ui.Box(c.Key("return-to-card")).Absolute().Left(0).Top(0).Size(width, height).Background(p.bg).Clip()
 		if initial {
 			// 交接的首帧直接绘制完整播放页，下一帧才开始取纹理变形。
@@ -363,9 +318,11 @@ func (a *app) playerMotionSheet(c *ui.Context, fx returnToCardEffect, nav, chat 
 		sheet.Children(func() {
 			ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 				a.desktopSidebar(c, a.snapNav, p)
-				ui.Box(c).Grow(1).MinWidth(0).Children(func() { a.contentView(c) })
+				ui.Box(c).Grow(1).MinWidth(0).Children(func() { a.contentView(c, a.watchHeaderTarget()) })
 			})
-			ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
+			if !a.immersive {
+				ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
+			}
 		})
 		// 变形中的页面不接收点击，只开放随轮廓移动的返回按钮。
 		ui.Box(c).Absolute().Fill().Role(ui.RoleNone)

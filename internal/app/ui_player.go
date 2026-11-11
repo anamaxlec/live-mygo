@@ -28,9 +28,10 @@ const watchFrameInset float32 = 4
 const watchFrameBorder float32 = .5
 const watchFrameRadius float32 = 14
 const transportBottom float32 = 22
+const compactTransportWidth float32 = 600
 
 func transportHeight(width float32) float32 {
-	if width < 600 {
+	if width < compactTransportWidth {
 		return 90
 	}
 	return 52
@@ -42,24 +43,23 @@ type watchLayout struct {
 	ChatWidth float32
 }
 
-func watchGeometry(width, height, header, sidebar, chat float32) watchLayout {
+func watchGeometry(width, height, header, sidebar, chat float32, framed bool) watchLayout {
 	inset, edge := float32(0), float32(0)
-	if header > 0 {
+	if framed {
 		inset, edge = watchFrameInset, watchFrameBorder
 	}
 	frame := ui.Rect{X: sidebar + inset, Y: header + inset, W: max(1, width-sidebar-2*inset), H: max(1, height-header-2*inset)}
 	return watchLayout{Frame: frame, Video: ui.Rect{X: frame.X + edge, Y: frame.Y + edge, W: max(1, frame.W-2*edge-chat), H: max(1, frame.H-2*edge)}, ChatWidth: chat}
 }
 
-func (a *app) contentView(c *ui.Context) {
+func (a *app) contentView(c *ui.Context, header float32) {
 	viewer := a.featuredViewer()
 	if a.snap {
 		viewer = a
 	}
 	full := !a.snap && a.win != nil && a.win.IsFullScreen()
-	header, sidebar := float32(0), float32(0)
+	sidebar := float32(0)
 	if !full {
-		header = watchHeaderHeight
 		if a.navMeasured {
 			sidebar = a.navWidth
 		} else if !a.focusMode {
@@ -93,7 +93,7 @@ func (a *app) contentView(c *ui.Context) {
 		a.playerNavWidth, a.playerChatWidth = sidebar, chatWidth
 	}
 	width, height := c.Size()
-	layout := watchGeometry(width, height, header, sidebar, chatWidth)
+	layout := watchGeometry(width, height, header, sidebar, chatWidth, !full)
 	inset, edge, radius := float32(0), float32(0), float32(0)
 	if !full {
 		inset, edge, radius = watchFrameInset, watchFrameBorder, watchFrameRadius
@@ -104,8 +104,8 @@ func (a *app) contentView(c *ui.Context) {
 	p := colors(c.Theme())
 	chrome := a.watchChrome(c)
 	root.Children(func() {
-		if !full {
-			ui.Box(c).Height(watchHeaderHeight).Shrink(0)
+		if header > 0 {
+			ui.Box(c).Height(header).Shrink(0)
 		}
 		body := ui.Box(c.Key("watch-body")).Grow(1).MinHeight(0).FillWidth().Padding(inset)
 		body.Draw(func(painter *ui.Painter, r ui.Rect) {
@@ -181,7 +181,7 @@ func (a *app) watchChrome(c *ui.Context) ui.Color {
 	return colors(c.Theme()).sidebar
 }
 
-const watchNavigationWidth, watchTitleGap float32 = 65, 12
+const watchNavigationWidth, watchTitleGap float32 = 100, 12
 
 func watchHeaderInset(c *ui.Context, sidebar float32) float32 {
 	if runtime.GOOS == "windows" {
@@ -191,11 +191,6 @@ func watchHeaderInset(c *ui.Context, sidebar float32) float32 {
 }
 
 func (a *app) watchHeader(c *ui.Context) {
-	viewer := a.featuredViewer()
-	if a.snap {
-		viewer = a
-	}
-	p := colors(c.Theme())
 	sidebar := sidebarWidth
 	if a.focusMode && !a.navMeasured {
 		sidebar = 0
@@ -212,9 +207,29 @@ func (a *app) watchHeader(c *ui.Context) {
 		// 没有红绿灯占用左上角，导航按钮从左边缘开始；标题仍对齐播放器左边线。
 		gap = max(watchTitleGap, sidebar+watchFrameInset+watchFrameBorder-inset-watchNavigationWidth)
 	}
-	ui.Row(c).FillWidth().Height(watchHeaderHeight).Shrink(0).Padding(0, titlebarRight(c, 16), 0, inset).AlignItems(ui.Center).Background(a.watchChrome(c)).DragWindow().Children(func() {
+	ui.Box(c).Fill().Background(a.watchChrome(c)).Children(func() {
+		a.watchHeaderControls(c, inset, titlebarRight(c, 16), gap, false)
+	})
+}
+
+func (a *app) watchHeaderControls(c *ui.Context, left, right, gap float32, floating bool) {
+	viewer := a.featuredViewer()
+	if a.snap {
+		viewer = a
+	}
+	p := colors(c.Theme())
+	button := func(c *ui.Context, icon *ui.SVG, label string, active ...bool) ui.Element {
+		if floating {
+			return a.mediaButton(c, icon, label, active...).Size(30, 30)
+		}
+		return iconButton(c, icon, label, active...)
+	}
+	if floating {
+		p = colors(ui.DarkTheme())
+	}
+	ui.Row(c).Fill().Padding(0, right, 0, left).AlignItems(ui.Center).DragWindow().Children(func() {
 		ui.Row(c).Width(watchNavigationWidth).Shrink(0).Gap(5).AlignItems(ui.Center).Children(func() {
-			back := iconButton(c.Key("watch-back"), iconBack, "返回列表 · Esc")
+			back := button(c.Key("watch-back"), iconBack, "返回列表 · Esc")
 			if a.snap {
 				back.Label("").Tooltip("").Role(ui.RoleNone).PassThrough()
 			} else if back.Clicked() {
@@ -224,9 +239,15 @@ func (a *app) watchHeader(c *ui.Context) {
 			if a.snap {
 				navOpen = a.snapNav > .1
 			}
-			if iconButton(c.Key("watch-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", navOpen).Clicked() {
+			if button(c.Key("watch-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", navOpen).Clicked() {
 				a.focusMode = !a.focusMode
 				a.fitWindowToVideo(false)
+			}
+			immersive := button(c.Key("immersive"), iconImmersive, "沉浸式观看 · T", a.immersive)
+			if a.snap {
+				immersive.Label("").Tooltip("").Role(ui.RoleNone).PassThrough()
+			} else if immersive.Clicked() {
+				a.toggleImmersive()
 			}
 		})
 		ui.Box(c).Width(gap).Shrink(0)
@@ -248,7 +269,7 @@ func (a *app) watchHeader(c *ui.Context) {
 		if viewer.recordingPath != "" {
 			ui.Text(c, viewer.recordingLabel()).FontSize(11).TextColor(p.danger).MarginX(6)
 		}
-		if iconButton(c.Key("watch-search"), iconSearch, shortcutLabel("快捷搜索直播 · ⌘L")).Clicked() {
+		if button(c.Key("watch-search"), iconSearch, shortcutLabel("快捷搜索直播 · ⌘L")).Clicked() {
 			a.openQuickSearch()
 		}
 		if viewer.stream != nil && a.library != nil {
@@ -256,11 +277,11 @@ func (a *app) watchHeader(c *ui.Context) {
 			if a.library.Has(viewer.stream.Room) {
 				icon, label = iconHeartFilled, "取消关注"
 			}
-			if iconButton(c.Key("watch-follow"), icon, label).Clicked() {
+			if button(c.Key("watch-follow"), icon, label).Clicked() {
 				a.toggleFavorite(viewer.stream.Room)
 			}
 		}
-		more := iconButton(c.Key("room-options"), iconMore, "直播间选项")
+		more := button(c.Key("room-options"), iconMore, "直播间选项")
 		more.Menu(func(m *ui.Menu) {
 			viewer.captureMenu(m)
 			m.Separator()
@@ -288,7 +309,7 @@ func (a *app) watchHeader(c *ui.Context) {
 				a.backToBrowse(c)
 			}
 		})
-		if iconButton(c.Key("watch-settings"), iconSettings, shortcutLabel("设置 · ⌘,")).Clicked() {
+		if button(c.Key("watch-settings"), iconSettings, shortcutLabel("设置 · ⌘,")).Clicked() {
 			a.settingsWindow(0)
 		}
 	})
@@ -413,7 +434,11 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 
 func (a *app) surfaceShouldShow() bool {
 	if a.embedded {
-		return !a.closing && a.parent.page == "player" && !a.parent.minimized && a.shown && !a.audioOnly()
+		page := "player"
+		if a.monitorKey != "" {
+			page = "monitor"
+		}
+		return !a.closing && a.parent.page == page && !a.parent.minimized && a.shown && !a.audioOnly()
 	}
 	inPlayer := a.page == "player" || !a.cardOpenAt.IsZero()
 	handoff := a.returnShrink && a.returnShrinkAt.IsZero()
@@ -468,14 +493,23 @@ func mediaDivider(c *ui.Context) {
 	ui.Box(c).Size(1, 18).MarginX(5).Background(ui.RGBA(255, 255, 255, .12))
 }
 
+func watchControlsWidth(width float32) float32 {
+	return min(724, max(1, width-36))
+}
+
+func floatingWatchControls(panel ui.Element) ui.Element {
+	return panel.Radius(15).Background(ui.RGBA(27, 28, 32, .87)).Border(1, ui.RGBA(255, 255, 255, .14))
+}
+
 func (a *app) transportView(c *ui.Context, width, opacity float32) {
 	if a.companion {
 		a.companionControls(c, width, opacity)
 		return
 	}
-	compact := width < 600
-	panelWidth := min(float32(724), width-36)
-	panel := ui.Column(c.Key("embedded-controls")).Absolute().Left(max(12, (width-panelWidth)/2)).Bottom(transportBottom).Width(panelWidth).Height(transportHeight(width)).Padding(9, 10).Radius(15).Background(ui.RGBA(27, 28, 32, .87)).Border(1, ui.RGBA(255, 255, 255, .14)).Shadow(0, 6, 22, 0, ui.RGBA(0, 0, 0, .24)).Opacity(opacity).Hidden(opacity < .005)
+	compact := width < compactTransportWidth
+	panelWidth := watchControlsWidth(width)
+	panel := floatingWatchControls(ui.Column(c.Key("embedded-controls"))).Absolute().Left((width-panelWidth)/2).
+		Bottom(transportBottom).Width(panelWidth).Height(transportHeight(width)).Padding(9, 10).Opacity(opacity).Hidden(opacity < .005)
 	if panel.Hovered() || a.controlsKeyboard && panel.FocusWithin() {
 		a.controlsHeld = true
 		a.controlsUntil = c.Now().Add(2800 * time.Millisecond)

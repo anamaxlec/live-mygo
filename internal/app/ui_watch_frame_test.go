@@ -59,14 +59,14 @@ func TestWatchFrameGeometryMatchesAspectFollowingAndFullscreen(t *testing.T) {
 				side := int(sidebar + chat + 2*(watchFrameInset+watchFrameBorder))
 				header := int(watchHeaderHeight + 2*(watchFrameInset+watchFrameBorder))
 				w, h := fittedWindow(1180, 780, aspect, side, header, 1496, 900, true)
-				layout := watchGeometry(float32(w), float32(h), watchHeaderHeight, sidebar, chat)
+				layout := watchGeometry(float32(w), float32(h), watchHeaderHeight, sidebar, chat, true)
 				if math.Abs(float64(layout.Video.W/layout.Video.H)-aspect) > .006 {
 					t.Fatalf("新增容器占位未纳入比例：%+v aspect=%v", layout, aspect)
 				}
 			}
 		}
 	}
-	full := watchGeometry(1440, 900, 0, 0, 0)
+	full := watchGeometry(1440, 900, 0, 0, 0, false)
 	if full.Frame != (ui.Rect{W: 1440, H: 900}) || full.Video != full.Frame {
 		t.Fatal("全屏仍保留窗口边框占位", full)
 	}

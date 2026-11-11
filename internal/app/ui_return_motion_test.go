@@ -22,7 +22,6 @@ func TestReturnToCardBendsTowardTheActualCard(t *testing.T) {
 		c.Root().Background(ui.RGB(255, 255, 255))
 		fx := returnToCardEffect{start: start, duration: returnToCardDuration, card: &card}
 		ui.Overlay(c, func() {
-			fx.shadowView(c)
 			ui.Box(c.Key("test-sheet")).Absolute().Fill().Background(ui.RGB(180, 30, 100)).Effect(fx)
 		})
 	}, 360, 240)
@@ -50,10 +49,8 @@ func TestReturnToCardBendsTowardTheActualCard(t *testing.T) {
 	if middleLeft != upperLeft || middleLeft != lowerLeft || middleLeft <= 0 || middleLeft >= int(card.X) {
 		t.Fatalf("左沿移动时没有保持笔直，左沿坐标为 %d、%d、%d", upperLeft, middleLeft, lowerLeft)
 	}
-	near := img.RGBAAt(middleLeft-5, middleY)
-	far := img.RGBAAt(max(0, middleLeft-26), middleY)
-	if near.R != near.G || near.R >= 246 || int(far.R)-int(near.R) < 8 {
-		t.Fatalf("左沿外没有柔和的投影，近侧 %v，远侧 %v", near, far)
+	if pixel := img.RGBAAt(middleLeft-5, middleY); pixel.R != 255 || pixel.G != 255 || pixel.B != 255 {
+		t.Fatalf("收拢动画在画面外留下了阴影：%v", pixel)
 	}
 	tester.Advance(returnToCardDuration * 55 / 100)
 	tester.Frame()

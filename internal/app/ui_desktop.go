@@ -31,6 +31,7 @@ func (a *app) view(c *ui.Context) {
 		a.openPage(page)
 	}
 	a.acceptLiveLinkDrop(c)
+	a.syncMonitorPlayback()
 	a.advanceCardOpen(c)
 	a.builtPage = a.page
 	viewer := a.featuredViewer()
@@ -53,16 +54,21 @@ func (a *app) view(c *ui.Context) {
 			a.toast = ""
 		}
 	}()
+	defer a.monitorLayer(c)
 	if a.page == "welcome" {
 		a.welcomeView(c)
 		return
 	}
 	fullScreen := a.page == "player" && a.win != nil && a.win.IsFullScreen()
+	if a.page != "player" || fullScreen || a.companion {
+		a.immersiveHeaderVisible = false
+		a.syncWatchWindowButtons(false)
+	}
 	if fullScreen {
 		c.SetTheme(ui.DarkTheme())
 	}
 	p := colors(c.Theme())
-	if c.Vibrancy() || a.page == "player" {
+	if c.Vibrancy() || a.page == "player" || a.page == "monitor" {
 		c.Root().Background(ui.Transparent)
 	}
 	if a.page != "player" && (a.returnShrink || !a.cardOpenAt.IsZero()) {
@@ -70,7 +76,7 @@ func (a *app) view(c *ui.Context) {
 		c.Root().Background(p.sidebar)
 	}
 	c.OnShortcut(ui.Cmd, ui.KeyF, func() {
-		if a.page == "player" {
+		if a.page == "player" || a.page == "monitor" {
 			a.openQuickSearch()
 		} else {
 			a.searchHandle.Focus(c)
@@ -81,7 +87,7 @@ func (a *app) view(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyComma, func() { a.settingsWindow(0) })
 	c.OnShortcut(ui.Cmd, ui.KeyW, func() { a.win.Close() })
 	c.OnShortcut(fullscreenModifiers, fullscreenKey, func() {
-		if a.page == "player" {
+		if a.win != nil && (a.page == "player" || a.page == "monitor") {
 			a.win.ToggleFullScreen()
 		}
 	})
@@ -104,6 +110,9 @@ func (a *app) view(c *ui.Context) {
 		c.OnShortcut(0, ui.KeyK, func() { viewer.revealControls(); viewer.focusControls = true; viewer.controlsKeyboard = true })
 		c.OnShortcut(0, ui.KeyM, viewer.toggleMute)
 		c.OnShortcut(0, ui.KeyD, func() { viewer.toggleBarrage(); viewer.revealControls() })
+		if !a.quick.open && !a.companion && !fullScreen {
+			c.OnShortcut(0, ui.KeyT, a.toggleImmersive)
+		}
 	}
 	if openingRoom || !a.searchHandle.Focused(c) && a.page == "player" {
 		c.OnShortcut(0, ui.KeyEscape, func() {
@@ -116,10 +125,24 @@ func (a *app) view(c *ui.Context) {
 				viewer.revealControls()
 			} else if a.win != nil && a.win.IsFullScreen() {
 				a.win.SetFullScreen(false)
+			} else if a.immersive {
+				a.toggleImmersive()
 			} else {
 				a.backToBrowse(c)
 			}
 		})
+	}
+	if a.page == "monitor" {
+		if !a.quick.open {
+			c.OnShortcut(0, ui.KeyEscape, func() {
+				if a.win != nil && a.win.IsFullScreen() {
+					a.win.SetFullScreen(false)
+				} else {
+					a.closeMonitor()
+				}
+			})
+		}
+		return
 	}
 	if a.companion {
 		a.companionView(c)
@@ -128,7 +151,7 @@ func (a *app) view(c *ui.Context) {
 	if fullScreen {
 		a.navMeasured = true
 		a.navWidth = 0
-		a.contentView(c)
+		a.contentView(c, 0)
 		return
 	}
 	desktop := ui.Row(c.Key("desktop-layout")).Fill().AlignItems(ui.Stretch)
@@ -146,6 +169,13 @@ func (a *app) view(c *ui.Context) {
 	}
 	a.navWidth = desktop.AnimateTo(fmt.Sprintf("navigation-width-%d", a.navReturn), target, ui.Animation{Duration: duration, Ease: ui.EaseInOut})
 	a.navMeasured = true
+	header := a.watchHeaderTarget()
+	if a.builtPage == "player" && !c.Preferences().ReduceMotion {
+		header = desktop.AnimateTo("watch-header", header, ui.Animation{Duration: 170 * time.Millisecond, Ease: ui.EaseInOut})
+	}
+	if a.builtPage == "player" {
+		a.syncWatchWindowButtons(a.immersive || header < watchHeaderHeight-.1)
+	}
 	desktop.Children(func() {
 		a.desktopSidebar(c, a.navWidth, p)
 		edge := float32(0)
@@ -158,7 +188,7 @@ func (a *app) view(c *ui.Context) {
 		}
 		content.Children(func() {
 			if a.builtPage == "player" {
-				a.contentView(c)
+				a.contentView(c, header)
 			} else {
 				if a.surface != nil && a.cardOpenAt.IsZero() {
 					a.surface.Show(a.surfaceShouldShow())
@@ -173,10 +203,15 @@ func (a *app) view(c *ui.Context) {
 			}
 		})
 	})
-	if a.builtPage == "player" {
+	if a.builtPage == "player" && header > .1 {
 		// 标题栏跨过侧栏边界，导航按钮放在标题左侧，不挤占播放器的对齐线。
-		ui.Box(c.Key("watch-header-overlay")).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
-	} else {
+		ui.Box(c.Key("watch-header-overlay")).Absolute().Left(0).Right(0).Top(0).Height(header).Clip().Children(func() {
+			ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
+		})
+	}
+	if a.builtPage == "player" && a.immersive && header < .1 {
+		a.immersiveHeader(c)
+	} else if a.builtPage != "player" {
 		if iconButton(c.Key("browse-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", !a.focusMode).Absolute().Left(browseSidebarLeft(c)).Top((watchHeaderHeight - 30) / 2).Clicked() {
 			a.focusMode = !a.focusMode
 		}
@@ -219,6 +254,7 @@ func (a *app) sidebar(c *ui.Context) {
 		ui.Scroll(c.Key("navigation")).Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c).Gap(3).Children(func() {
 				a.navItem(c, "home", "首页", iconHome, 0)
+				a.navItem(c, "monitor", "监控室", iconMonitor, len(a.monitorRooms()))
 				a.navItem(c, "huya", "虎牙", logoHuya, 0)
 				a.navItem(c, "bilibili", "哔哩哔哩", logoBilibili, 0)
 				a.navItem(c, "douyu", "斗鱼", logoDouyu, 0)
@@ -406,6 +442,9 @@ func (a *app) openPage(page string) {
 	if page == a.page && a.catalogQuery == "" {
 		return
 	}
+	if page == "monitor" && a.page != "monitor" {
+		a.monitorReturnPage = a.page
+	}
 	a.cancelReturnCapture()
 	a.returnShrink = false
 	a.returnShrinkAt = time.Time{}
@@ -418,7 +457,19 @@ func (a *app) openPage(page string) {
 	a.catalogLoading = false
 	a.leavePlayer()
 	a.cardOpenAt = time.Time{}
+	fromMonitor := a.page == "monitor"
 	a.page = page
+	if fromMonitor || page == "monitor" {
+		a.syncMonitorPlayback()
+	}
+	if fromMonitor && page == "player" {
+		for _, viewer := range []*app{a, a.sideViewer} {
+			if viewer != nil && viewer.pausedOnLeave {
+				viewer.pausedOnLeave = false
+				viewer.setPlaybackPaused(false, nil)
+			}
+		}
+	}
 	// 首页和收藏页都优先展示关注的开播状态；冷却时间避免每次切页都请求。
 	a.refreshFavorites(false)
 	a.grid = ui.ListState{}
@@ -512,6 +563,9 @@ func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
 		page = string(a.platform())
 	}
 	a.page = page
+	if page == "monitor" {
+		a.syncMonitorPlayback()
+	}
 	// 从播放页返回浏览时恢复侧栏，搜索框和导航不必再靠左上角开关找回。
 	a.focusMode = false
 	// 只有收拢层接管过渡时才跳过侧栏宽度动画。

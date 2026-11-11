@@ -22,6 +22,11 @@ func (a *app) acceptLiveLinkDrop(c *ui.Context) {
 	if !ok {
 		return
 	}
+	if a.page == "monitor" {
+		a.closeQuickSearch()
+		a.addMonitorRoom(room)
+		return
+	}
 	if a.player == nil {
 		a.toast = "播放器正在初始化，请稍后再拖入链接"
 		return

@@ -171,6 +171,14 @@ type app struct {
 	parent                                 *app
 	extraWindows                           []*app
 	sideViewer                             *app
+	monitorViewers                         []*app
+	monitorPreviousAudio                   *app
+	monitorReturnPage                      string
+	monitorKey                             string
+	monitorSelected                        string
+	monitorDrag                            monitorDrag
+	immersive, watchButtonsHidden          bool
+	immersiveHeaderVisible                 bool
 	sideFeatured                           bool
 	embedded                               bool
 	systemPicture                          systemPictureInPicture
@@ -292,6 +300,9 @@ func (a *app) start() {
 		if !a.companion && !a.win.IsFullScreen() {
 			a.win.SetTitle(a.win.Title())
 		}
+		if a.watchButtonsHidden && a.surface != nil {
+			a.surface.SetWindowButtonsVisible(false)
+		}
 		a.refreshFavorites(false)
 	})
 	a.win.OnMinimize(func() {
@@ -299,8 +310,10 @@ func (a *app) start() {
 		if a.surface != nil {
 			a.surface.Show(false)
 		}
-		if a.hasSideViewer() && a.sideViewer.player != nil {
-			a.sideViewer.surface.Show(false)
+		for _, viewer := range a.allPlaybackWindows() {
+			if viewer.embedded && !viewer.closing && viewer.player != nil {
+				viewer.surface.Show(false)
+			}
 		}
 	})
 	a.win.OnRestore(func() {
@@ -376,8 +389,8 @@ func (a *app) runPlayer(surface player.VideoSurface) {
 		a.player = p
 		a.command("set", "volume", strconv.FormatFloat(a.volume, 'f', 0, 64))
 		if a.parent != nil {
-			a.stats.Muted = true
-			a.command("set", "mute", "yes")
+			a.stats.Muted = a.monitorKey == "" || !a.parent.monitorAudioEnabled(a.monitorKey)
+			a.command("set", "mute", playbackYesNo(a.stats.Muted))
 		}
 		a.status = "播放器已就绪"
 		if a.opts.file != "" {
@@ -489,7 +502,11 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 		a.title = a.targetRoom.Title
 	}
 	if !opts.keepBrowsing {
+		fromMonitor := a.page == "monitor"
 		a.page = "player"
+		if fromMonitor {
+			a.syncMonitorPlayback()
+		}
 		a.transportHandle.Focus()
 	}
 	if a.resolveCancel != nil {
@@ -514,6 +531,9 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 	}
 	if a.embedded && a.parent.featuredViewer() != a || a.hasSideViewer() && a.sideFeatured {
 		preference, roomPreferences = platforms.QualityHigh, nil
+	}
+	if a.monitorKey != "" {
+		preference, roomPreferences = platforms.QualitySmooth, nil
 	}
 	go func() {
 		s, err := a.client.Resolve(ctx, p, id, quality, route...)
@@ -600,7 +620,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 				if !opts.keepBrowsing {
 					a.page = "player"
 				}
-				if a.library != nil {
+				if a.library != nil && a.monitorKey == "" {
 					var err error
 					if a.embedded || a.hasSideViewer() && a.sideFeatured {
 						err = a.library.Watch(s.Room)
@@ -640,7 +660,7 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 				if !opts.keepBrowsing {
 					a.transportHandle.Focus()
 				}
-				if a.rootApp().featuredViewer() == a || a.parent != nil && !a.embedded && !a.companion {
+				if a.monitorKey != "" || a.rootApp().featuredViewer() == a || a.parent != nil && !a.embedded && !a.companion {
 					a.startChat(false)
 				}
 			})
@@ -789,6 +809,7 @@ func (a *app) quit() {
 		a.recordingTimer = nil
 	}
 	children := append([]*app(nil), a.extraWindows...)
+	children = append(children, a.monitorViewers...)
 	if a.sideViewer != nil {
 		children = append(children, a.sideViewer)
 	}
@@ -841,7 +862,9 @@ func (a *app) quit() {
 		}
 		a.win.Update(func() {
 			a.clean = true
-			if a.embedded {
+			if a.monitorKey != "" {
+				a.parent.removeMonitorViewer(a)
+			} else if a.embedded {
 				a.parent.removeSideViewer(a)
 			} else if a.parent != nil {
 				a.win.Close()

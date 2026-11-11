@@ -27,7 +27,7 @@ func (a *app) allPlaybackWindows() []*app {
 	if root.sideViewer != nil {
 		viewers = append(viewers, root.sideViewer)
 	}
-	return viewers
+	return append(viewers, root.monitorViewers...)
 }
 
 // 一个窗口取消静音时，将其他窗口静音，避免多路声音叠在一起。
@@ -35,7 +35,7 @@ func (a *app) claimAudio() {
 	root := a.rootApp()
 	root.mediaOwner = a
 	for _, other := range a.allPlaybackWindows() {
-		if other == a || other.closing || !other.shown {
+		if other == a || other.closing || other.monitorKey != "" || !other.shown {
 			continue
 		}
 		other.stats.Muted = true
@@ -52,7 +52,7 @@ func (a *app) openExtraRoom(room platforms.Room) {
 	if root.closing || root.win == nil {
 		return
 	}
-	if len(root.allPlaybackWindows()) > maxExtraWindows {
+	if root.extraWindowLimitReached() {
 		a.toast = "最多同时观看三个直播间"
 		return
 	}
@@ -128,6 +128,15 @@ func (a *app) openExtraRoom(room platforms.Room) {
 	root.extraWindows = append(root.extraWindows, child)
 	child.refreshAccountStatus()
 	go child.runPlayer(surface)
+}
+
+func (a *app) extraWindowLimitReached() bool {
+	root := a.rootApp()
+	count := len(root.extraWindows)
+	if root.sideViewer != nil {
+		count++
+	}
+	return count >= maxExtraWindows
 }
 
 func (a *app) newRoomViewer(room platforms.Room) *app {

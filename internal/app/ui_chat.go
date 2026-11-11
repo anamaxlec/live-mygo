@@ -27,6 +27,9 @@ func (a *app) chatVisible() bool {
 	return a.library != nil && a.roomPlaybackPreferences(a.library.Preferences).ChatPanel
 }
 func (a *app) barrageVisible() bool {
+	if a.monitorKey != "" {
+		return a.targetRoom.Platform != platforms.FLive && a.parent.monitorState().Settings[a.monitorKey].Danmaku
+	}
 	if a.parent != nil && a.companion {
 		return false
 	}
@@ -74,6 +77,9 @@ func (a *app) toggleBarrage() {
 }
 
 func (a *app) startChat(force bool) {
+	if a.monitorKey != "" && !a.barrageVisible() {
+		return
+	}
 	if a.stream == nil {
 		return
 	}

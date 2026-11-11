@@ -186,6 +186,10 @@ func (a *app) chatResizeHandle(c *ui.Context, width, edge float32) {
 	}
 }
 func (a *app) closePlayback() {
+	if a.monitorKey != "" {
+		a.stop()
+		return
+	}
 	if a.embedded {
 		a.parent.closeSideViewer(true)
 		return
@@ -303,6 +307,7 @@ func (a *app) toggleCompanion() {
 	if a.surface != nil {
 		// 放在窗口尺寸变化之后，避免 MyGo 重新布局标题栏时又把按钮显示出来。
 		a.surface.SetWindowButtonsVisible(!a.companion)
+		a.watchButtonsHidden = false
 	}
 	if a.companion {
 		a.controlsUntil = time.Time{}

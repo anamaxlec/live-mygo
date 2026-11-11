@@ -32,6 +32,10 @@ func NewSurface(window uintptr, backend ...string) (*Surface, error) {
 	return &Surface{window: window, softwareSurface: newSoftwareSurface()}, nil
 }
 
+func NewMonitorSurface(window uintptr) (VideoSurface, error) {
+	return NewSurface(window)
+}
+
 func (s *Surface) scale() float64 {
 	if videoWindowDPI.Find() == nil {
 		if dpi, _, _ := videoWindowDPI.Call(s.window); dpi > 0 {

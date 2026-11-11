@@ -117,6 +117,9 @@ func (a *app) fitWindowToVideo(preferWidth bool) {
 		maxWidth, maxHeight = 1920, 1080
 	}
 	header := int(watchHeaderHeight + 2*(watchFrameInset+watchFrameBorder))
+	if a.immersive {
+		header -= int(watchHeaderHeight)
+	}
 	width, height := fittedWindow(current.Width, current.Height, float64(a.stats.Width)/float64(a.stats.Height), side, header, maxWidth, maxHeight, preferWidth)
 	a.aspectW, a.aspectH = width, height
 	if abs(width-current.Width) <= 1 && abs(height-current.Height) <= 1 {
@@ -141,7 +144,7 @@ func abs(value int) int {
 
 // 拖动过程中不再反复改写系统窗口尺寸，在缩放停下后一次贴合比例。
 func (a *app) windowResized() {
-	if a.surface != nil && a.companion {
+	if a.surface != nil && (a.companion || a.watchButtonsHidden) {
 		// MyGo 在每次尺寸变化时重排标题栏按钮，小窗拖动后需要再次隐藏。
 		a.surface.SetWindowButtonsVisible(false)
 	}

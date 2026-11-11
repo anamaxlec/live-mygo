@@ -76,10 +76,21 @@ var isVirtualMachine = sync.OnceValue(func() bool {
 
 type softwareWindowSurface struct {
 	*softwareSurface
-	window objc.ID
+	window  objc.ID
+	monitor bool
+}
+
+func NewMonitorSurface(window uintptr) (VideoSurface, error) {
+	if window == 0 {
+		return nil, errors.New("无法创建 macOS 视频容器：窗口句柄无效")
+	}
+	return &softwareWindowSurface{softwareSurface: newSoftwareSurface(), window: objc.ID(window), monitor: true}, nil
 }
 
 func (s *softwareWindowSurface) mpvOptions() [][2]string {
+	if s.monitor && !isVirtualMachine() {
+		return [][2]string{{"vo", "libmpv"}, {"hwdec", "videotoolbox-copy"}}
+	}
 	return [][2]string{{"vo", "libmpv"}, {"hwdec", "no"}}
 }
 

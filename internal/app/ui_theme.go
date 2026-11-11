@@ -63,7 +63,7 @@ func (a *app) applyLocalPreferences(before, next library.Preferences) {
 			a.refreshFavoriteRooms(true, true)
 		}
 	}
-	if before.AudioOnly != next.AudioOnly && !a.audioModeChanging {
+	if before.AudioOnly != next.AudioOnly && !a.audioModeChanging && a.monitorKey == "" {
 		a.stopRecording()
 		mode := "auto"
 		if next.AudioOnly {

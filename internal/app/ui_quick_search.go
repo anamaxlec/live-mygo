@@ -122,10 +122,15 @@ func (a *app) submitQuickSearch() {
 	}
 	p := a.quickRoomPlatform()
 	if directRoomQuery(query) {
-		if parsed, _, err := platforms.ParseRoom(p, query); err != nil {
+		if parsed, id, err := platforms.ParseRoom(p, query); err != nil {
 			a.quick.err = err.Error()
 			return
 		} else {
+			if a.page == "monitor" {
+				a.closeQuickSearch()
+				a.addMonitorRoom(platforms.Room{Platform: parsed, ID: id})
+				return
+			}
 			p = parsed
 		}
 		if a.player == nil {
@@ -188,6 +193,40 @@ func (a *app) submitQuickSearch() {
 	}()
 }
 
+type quickRoomGroup struct {
+	label string
+	rooms []platforms.Room
+}
+
+func (a *app) quickRoomGroups() []quickRoomGroup {
+	if a.quick.submitted != "" || a.quick.err != "" || a.library == nil {
+		return []quickRoomGroup{{rooms: a.quick.rooms}}
+	}
+	if a.page != "monitor" {
+		return []quickRoomGroup{{"最近观看", a.library.History[:min(4, len(a.library.History))]}}
+	}
+	accept := func(room platforms.Room) bool {
+		return a.quick.platform == allSearchSources || room.Platform.Name() == a.quick.platform
+	}
+	var favorites, recent []platforms.Room
+	seen := make(map[string]bool)
+	for _, room := range a.favoriteRooms() {
+		if accept(room) {
+			favorites = append(favorites, room)
+			seen[roomKey(room)] = true
+		}
+	}
+	for _, room := range a.library.History {
+		if len(recent) == 4 {
+			break
+		}
+		if accept(room) && !seen[roomKey(room)] {
+			recent = append(recent, room)
+		}
+	}
+	return []quickRoomGroup{{"我的关注", favorites}, {"最近观看", recent}}
+}
+
 func (a *app) quickSearchView(c *ui.Context) {
 	// Overlay 根节点在关闭时仍保留，面板退出不改变底下的页面布局。
 	ui.Overlay(c, func() {})
@@ -234,6 +273,9 @@ func (a *app) quickSearchView(c *ui.Context) {
 				label := "搜索"
 				if directRoomQuery(strings.TrimSpace(a.quick.query)) {
 					label = "打开直播间"
+					if a.page == "monitor" {
+						label = "加入监控室"
+					}
 				}
 				if ui.Button(c, label).Height(29).FontSize(11.5).Disabled(strings.TrimSpace(a.quick.query) == "" || a.quick.loading).Clicked() {
 					a.submitQuickSearch()
@@ -243,41 +285,72 @@ func (a *app) quickSearchView(c *ui.Context) {
 			_, height := c.Size()
 			ui.Scroll(c.Key("results")).MaxHeight(max(100, min(360, height-285))).Children(func() {
 				ui.Column(c).Gap(4).Children(func() {
-					rooms := a.quick.rooms
-					if a.quick.submitted == "" && a.quick.err == "" && a.library != nil {
-						rooms = a.library.History[:min(4, len(a.library.History))]
-						if len(rooms) > 0 {
-							ui.Text(c, "最近观看").FontSize(10.5).FontWeight(500).TextColor(p.muted).Padding(2, 8, 5, 8)
+					groups := a.quickRoomGroups()
+					added := make(map[string]bool)
+					if a.page == "monitor" {
+						for _, room := range a.monitorRooms() {
+							added[roomKey(room)] = true
 						}
 					}
-					for _, room := range rooms {
-						b := ui.ButtonBase(c.Key(roomKey(room))).FillWidth().Height(62).Padding(8).Gap(11).Radius(8).AlignItems(ui.Center).Label("切换到 " + a.displayRoomName(room) + " " + room.Title)
-						buttonFeedback(b, p)
-						if a.canAddSideRoom(room) {
-							b.ContextMenu(func(m *ui.Menu) {
-								if m.Item("在副画面播放").Chosen() {
-									a.closeQuickSearch()
-									a.openSideRoom(c, room)
+					roomCount := 0
+					for _, group := range groups {
+						if group.label != "" && len(group.rooms) > 0 {
+							ui.Text(c, group.label).FontSize(10.5).FontWeight(500).TextColor(p.muted).Padding(2, 8, 5, 8)
+						}
+						roomCount += len(group.rooms)
+						for _, room := range group.rooms {
+							action := "切换到 "
+							alreadyAdded := added[roomKey(room)]
+							if a.page == "monitor" {
+								action = "加入监控室 "
+								if alreadyAdded {
+									action = "已添加 "
+								}
+							}
+							b := ui.ButtonBase(c.Key(roomKey(room))).FillWidth().Height(62).Padding(8).Gap(11).Radius(8).AlignItems(ui.Center).
+								Label(action + a.displayRoomName(room) + " " + room.Title).Disabled(alreadyAdded)
+							buttonFeedback(b, p)
+							if a.page != "monitor" && a.canAddSideRoom(room) {
+								b.ContextMenu(func(m *ui.Menu) {
+									if m.Item("在副画面播放").Chosen() {
+										a.closeQuickSearch()
+										a.openSideRoom(c, room)
+									}
+								})
+							}
+							b.Children(func() {
+								ui.Box(c).Size(64, 40).Radius(6).Clip().Shrink(0).Children(func() { a.coverImage(c, room.Cover, 6); sourceBadge(c, room.Platform, true) })
+								ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
+									ui.Text(c, a.displayRoomName(room)).FontSize(12).FontWeight(500).TextColor(p.text).SingleLine()
+									ui.Text(c, room.Platform.Name()+" · "+room.Title).FontSize(10.5).TextColor(p.muted).SingleLine()
+								})
+								if alreadyAdded {
+									ui.Text(c, "已添加").FontSize(10.5).TextColor(p.muted)
+								} else {
+									icon := iconPlay
+									if a.page == "monitor" {
+										icon = iconPlus
+									}
+									ui.Icon(c, icon).Size(13, 13).TextColor(p.muted)
 								}
 							})
-						}
-						b.Children(func() {
-							ui.Box(c).Size(64, 40).Radius(6).Clip().Shrink(0).Children(func() { a.coverImage(c, room.Cover, 6); sourceBadge(c, room.Platform, true) })
-							ui.Column(c).Grow(1).MinWidth(0).Gap(4).Children(func() {
-								ui.Text(c, a.displayRoomName(room)).FontSize(12).FontWeight(500).TextColor(p.text).SingleLine()
-								ui.Text(c, room.Platform.Name()+" · "+room.Title).FontSize(10.5).TextColor(p.muted).SingleLine()
-							})
-							ui.Icon(c, iconPlay).Size(13, 13).TextColor(p.muted)
-						})
-						if b.Clicked() {
-							a.closeQuickSearch()
-							a.playRoom(room)
+							if b.Clicked() {
+								if a.page == "monitor" {
+									a.addMonitorRoom(room)
+									a.quick.focus = true
+								} else {
+									a.closeQuickSearch()
+									a.playRoom(room)
+								}
+							}
 						}
 					}
 					message := a.quick.err
-					if message == "" && len(rooms) == 0 && !a.quick.loading {
+					if message == "" && roomCount == 0 && !a.quick.loading {
 						if a.quick.submitted != "" {
 							message = "没有找到直播间，换个主播名或直接输入房间号。"
+						} else if a.page == "monitor" {
+							message = "搜索主播，或粘贴直播间链接加入监控室。"
 						} else {
 							message = "输入主播名搜索，粘贴链接或房间号直接打开。"
 						}

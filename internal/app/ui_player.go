@@ -181,7 +181,7 @@ func (a *app) watchChrome(c *ui.Context) ui.Color {
 	return colors(c.Theme()).sidebar
 }
 
-const watchNavigationWidth, watchTitleGap float32 = 100, 12
+const watchNavigationWidth, watchTitleGap float32 = 65, 12
 
 func watchHeaderInset(c *ui.Context, sidebar float32) float32 {
 	if runtime.GOOS == "windows" {
@@ -242,12 +242,6 @@ func (a *app) watchHeaderControls(c *ui.Context, left, right, gap float32, float
 			if button(c.Key("watch-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", navOpen).Clicked() {
 				a.focusMode = !a.focusMode
 				a.fitWindowToVideo(false)
-			}
-			immersive := button(c.Key("immersive"), iconImmersive, "沉浸式观看 · T", a.immersive)
-			if a.snap {
-				immersive.Label("").Tooltip("").Role(ui.RoleNone).PassThrough()
-			} else if immersive.Clicked() {
-				a.toggleImmersive()
 			}
 		})
 		ui.Box(c).Width(gap).Shrink(0)
@@ -649,6 +643,11 @@ func (a *app) streamControls(c *ui.Context) {
 	}
 	if a.mediaButton(c.Key("chat"), chatIcon, chatLabel, a.chatVisible()).Clicked() {
 		a.toggleChat()
+	}
+	if root := a.rootApp(); !a.companion && (a.parent == nil || a.embedded) && (a.win == nil || !a.win.IsFullScreen()) {
+		if a.mediaButton(c.Key("immersive"), iconImmersive, "沉浸式观看 · T", root.immersive).Disabled(root.page != "player").Clicked() {
+			root.toggleImmersive()
+		}
 	}
 	icon, label := iconFullscreen, shortcutLabel("全屏 · ⌃⌘F")
 	if a.win != nil && a.win.IsFullScreen() {

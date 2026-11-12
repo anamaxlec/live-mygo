@@ -230,8 +230,12 @@ func (a *app) recoverCardPlayback() {
 }
 
 func (a *app) enterPlayerFromCard(animated bool) {
+	fromMonitor := a.page == "monitor"
 	a.page = "player"
 	a.focusMode = true
+	if fromMonitor {
+		a.syncMonitorPlayback()
+	}
 	if animated {
 		a.navReturn++
 	} else {

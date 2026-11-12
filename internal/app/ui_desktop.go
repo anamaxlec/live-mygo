@@ -31,7 +31,6 @@ func (a *app) view(c *ui.Context) {
 		a.openPage(page)
 	}
 	a.acceptLiveLinkDrop(c)
-	a.syncMonitorPlayback()
 	a.advanceCardOpen(c)
 	a.builtPage = a.page
 	viewer := a.featuredViewer()
@@ -133,7 +132,7 @@ func (a *app) view(c *ui.Context) {
 		})
 	}
 	if a.page == "monitor" {
-		if !a.quick.open {
+		if !a.quick.open && !openingRoom && a.monitorVolumeRoom == "" {
 			c.OnShortcut(0, ui.KeyEscape, func() {
 				if a.win != nil && a.win.IsFullScreen() {
 					a.win.SetFullScreen(false)
@@ -142,6 +141,7 @@ func (a *app) view(c *ui.Context) {
 				}
 			})
 		}
+		a.cardOpenView(c)
 		return
 	}
 	if a.companion {
@@ -173,8 +173,8 @@ func (a *app) view(c *ui.Context) {
 	if a.builtPage == "player" && !c.Preferences().ReduceMotion {
 		header = desktop.AnimateTo("watch-header", header, ui.Animation{Duration: 170 * time.Millisecond, Ease: ui.EaseInOut})
 	}
-	if a.builtPage == "player" {
-		a.syncWatchWindowButtons(a.immersive || header < watchHeaderHeight-.1)
+	if a.builtPage == "player" && !a.immersive {
+		a.syncWatchWindowButtons(header < watchHeaderHeight-.1)
 	}
 	desktop.Children(func() {
 		a.desktopSidebar(c, a.navWidth, p)
@@ -254,7 +254,6 @@ func (a *app) sidebar(c *ui.Context) {
 		ui.Scroll(c.Key("navigation")).Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c).Gap(3).Children(func() {
 				a.navItem(c, "home", "首页", iconHome, 0)
-				a.navItem(c, "monitor", "监控室", iconMonitor, len(a.monitorRooms()))
 				a.navItem(c, "huya", "虎牙", logoHuya, 0)
 				a.navItem(c, "bilibili", "哔哩哔哩", logoBilibili, 0)
 				a.navItem(c, "douyu", "斗鱼", logoDouyu, 0)
@@ -270,6 +269,7 @@ func (a *app) sidebar(c *ui.Context) {
 				}
 				a.navItem(c, "favorites", "关注", iconHeart, count)
 				a.navItem(c, "history", "最近观看", iconHistory, 0)
+				a.navItem(c, "monitor", "监控室", iconMonitor, len(a.monitorRooms()))
 			})
 		})
 		if a.stream != nil || a.targetRoom.ID != "" {
@@ -459,16 +459,21 @@ func (a *app) openPage(page string) {
 	a.cardOpenAt = time.Time{}
 	fromMonitor := a.page == "monitor"
 	a.page = page
+	if !fromMonitor && page == "monitor" {
+		a.pauseForMonitor()
+	}
 	if fromMonitor || page == "monitor" {
 		a.syncMonitorPlayback()
 	}
 	if fromMonitor && page == "player" {
 		for _, viewer := range []*app{a, a.sideViewer} {
 			if viewer != nil && viewer.pausedOnLeave {
-				viewer.pausedOnLeave = false
 				viewer.setPlaybackPaused(false, nil)
 			}
 		}
+		a.focusMode = true
+		a.fitWindowToVideo(true)
+		return
 	}
 	// 首页和收藏页都优先展示关注的开播状态；冷却时间避免每次切页都请求。
 	a.refreshFavorites(false)
@@ -532,7 +537,7 @@ func (a *app) backToBrowse(c *ui.Context) {
 		}
 		return
 	}
-	if !a.classicReturn() && a.captureReturnFrame() {
+	if a.returnPage != "monitor" && !a.classicReturn() && a.captureReturnFrame() {
 		return
 	}
 	a.finishBackToBrowse(nil)
@@ -542,7 +547,7 @@ func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
 	a.cancelReturnCapture()
 	alreadyBrowsing := a.page != "player"
 	hasRoom := a.stream != nil || a.targetRoom.ID != ""
-	a.returnShrink = !a.classicReturn() && hasRoom
+	a.returnShrink = a.returnPage != "monitor" && !a.classicReturn() && hasRoom
 	a.returnWasBusy = a.returnShrink && a.busy
 	a.returnFromOpen = false
 	if !a.returnShrink {
@@ -564,6 +569,9 @@ func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
 	}
 	a.page = page
 	if page == "monitor" {
+		if !alreadyBrowsing {
+			a.pauseForMonitor()
+		}
 		a.syncMonitorPlayback()
 	}
 	// 从播放页返回浏览时恢复侧栏，搜索框和导航不必再靠左上角开关找回。

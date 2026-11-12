@@ -3,6 +3,8 @@
 package app
 
 import (
+	"context"
+	"image"
 	"math"
 	"testing"
 	"time"
@@ -11,48 +13,39 @@ import (
 	"live-mygo/internal/platforms"
 )
 
-func TestImmersiveKeepsCommentsAndPutsTheSwitchBesideSidebar(t *testing.T) {
+func TestImmersiveKeepsCommentsAndHidesTheSidebar(t *testing.T) {
 	a := polishApp(t)
 	a.page, a.shown = "player", true
 	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "123", Title: "测试直播"}
 	view := ui.NewTester(a.view, 1180, 780)
 	view.Move(480, 540)
-	view.Advance(200 * time.Millisecond)
+	view.Advance(300 * time.Millisecond)
 	videoBefore, ok := view.Find("直播画面，双击切换全屏")
 	chatBefore, chatOK := view.Find("弹幕列表")
-	assertBesideSidebar := func() {
-		t.Helper()
-		button, buttonOK := view.Find("沉浸式观看 · T")
-		sidebar, sidebarOK := view.Find("显示 / 隐藏导航侧栏")
-		if !buttonOK || !sidebarOK || button.Y != sidebar.Y || button.X != sidebar.X+sidebar.W+5 {
-			t.Fatalf("沉浸开关应紧贴侧栏按钮右侧：侧栏 %+v，沉浸 %+v", sidebar, button)
-		}
+	if !ok || !chatOK || a.focusMode {
+		t.Fatal("缺少播放画面或弹幕列表，或侧栏没有展开")
 	}
-	if !ok || !chatOK {
-		t.Fatal("缺少播放画面或弹幕列表")
+	button, ok := view.Find("沉浸式观看 · T")
+	fullscreen, fullOK := view.Find(shortcutLabel("全屏 · ⌃⌘F"))
+	if !ok || !fullOK || button.Y != fullscreen.Y || button.X >= fullscreen.X {
+		t.Fatalf("沉浸开关应在底栏全屏按钮左侧：沉浸 %+v，全屏 %+v", button, fullscreen)
 	}
-	assertBesideSidebar()
 	if err := view.Click("沉浸式观看 · T"); err != nil {
 		t.Fatal(err)
 	}
-	view.Move(480, 540)
-	view.Advance(80 * time.Millisecond)
-	during, _ := view.Find("直播画面，双击切换全屏")
-	if during.Y >= videoBefore.Y || during.Y <= videoBefore.Y-watchHeaderHeight {
-		t.Fatalf("切换时画面没有连续跟随顶栏：%+v", during)
-	}
-	view.Advance(200 * time.Millisecond)
+	view.Move(700, 540)
+	view.Advance(300 * time.Millisecond)
 	video, ok := view.Find("直播画面，双击切换全屏")
 	chat, chatOK := view.Find("弹幕列表")
-	if !ok || !chatOK || video.Y != videoBefore.Y-watchHeaderHeight || video.H != videoBefore.H+watchHeaderHeight ||
-		video.X != videoBefore.X || video.W != videoBefore.W || chat.X != chatBefore.X || chat.W != chatBefore.W {
-		t.Fatalf("切换后画面或弹幕未保持对齐：画面 %+v → %+v，弹幕 %+v → %+v", videoBefore, video, chatBefore, chat)
+	if !ok || !chatOK || !a.focusMode || video.Y != videoBefore.Y-watchHeaderHeight || video.X >= videoBefore.X ||
+		chat.W != chatBefore.W || chat.X+chat.W != chatBefore.X+chatBefore.W {
+		t.Fatalf("沉浸时应收起顶栏和侧栏、保留弹幕列表：画面 %+v → %+v，弹幕 %+v → %+v", videoBefore, video, chatBefore, chat)
 	}
 	if _, shown := view.Find("沉浸式浮动顶栏"); shown {
 		t.Fatal("指针在画面中时不应弹出顶栏")
 	}
-	if _, shown := view.Find("沉浸式观看 · T"); shown {
-		t.Fatal("底栏不应显示已移动的沉浸开关")
+	if !a.watchButtonsHidden {
+		t.Fatal("沉浸时应隐藏系统窗口按钮")
 	}
 	view.Move(video.X+video.W/2, video.Y+5)
 	view.Advance(180 * time.Millisecond)
@@ -61,26 +54,24 @@ func TestImmersiveKeepsCommentsAndPutsTheSwitchBesideSidebar(t *testing.T) {
 		panel.W != watchControlsWidth(video.W) || math.Abs(float64(panel.Y-video.Y-transportBottom)) > .5 {
 		t.Fatalf("浮动顶栏没有按底栏宽度和边距对齐：%+v，画面 %+v", panel, video)
 	}
+	if a.watchButtonsHidden {
+		t.Fatal("浮动顶栏出现时应一并显示系统窗口按钮")
+	}
 	view.Move(panel.X+panel.W/2, panel.Y+panel.H/2)
 	view.Advance(180 * time.Millisecond)
 	if _, shown := view.Find("直播间选项"); !shown {
 		t.Fatal("移入浮动顶栏后应保留直播间操作")
 	}
-	assertBesideSidebar()
-	view.Move(chat.X+chat.W/2, 140)
+	view.Move(chat.X+chat.W/2, 300)
 	view.Advance(180 * time.Millisecond)
-	if _, shown := view.Find("沉浸式浮动顶栏"); shown {
-		t.Fatal("指针移到侧边评论区后应收起浮动顶栏")
+	if _, shown := view.Find("沉浸式浮动顶栏"); shown || !a.watchButtonsHidden {
+		t.Fatal("指针移到侧边评论区后应收起浮动顶栏和窗口按钮")
 	}
-	view.Move(video.X+video.W/2, video.Y+5)
-	view.Advance(180 * time.Millisecond)
-	if err := view.Click("沉浸式观看 · T"); err != nil {
-		t.Fatal(err)
-	}
-	view.Advance(200 * time.Millisecond)
+	view.Key(0, ui.KeyEscape)
+	view.Advance(300 * time.Millisecond)
 	video, _ = view.Find("直播画面，双击切换全屏")
-	if a.page != "player" || a.immersive || video != videoBefore {
-		t.Fatalf("浮动顶栏开关应退出沉浸模式并还原播放页：%+v", video)
+	if a.page != "player" || a.immersive || a.focusMode || video != videoBefore {
+		t.Fatalf("Esc 应退出沉浸模式并恢复侧栏和原布局：%+v", video)
 	}
 }
 
@@ -95,35 +86,50 @@ func TestMonitorLayoutAndRoomControls(t *testing.T) {
 	}
 	left, ok := view.Find("监控画面 甲")
 	right, rightOK := view.Find("监控画面 乙")
-	if !ok || !rightOK || left.X != 0 || left.Y != monitorToolbarHeight || left.Y+left.H != 780 ||
-		right.X != left.W || right.Y != left.Y || right.H != left.H || right.X+right.W != 1180 {
-		t.Fatalf("自动排列应填满工具栏下方的画布：%+v %+v", left, right)
+	if !ok || !rightOK || left.X != 0 || left.Y != monitorToolbarHeight || left.W != 1180 ||
+		right.Y != left.Y+left.H || right.H != left.H || right.Y+right.H != 780 {
+		t.Fatalf("宽窗口里两路上下排列时 16:9 画面更大：%+v %+v", left, right)
 	}
 	if _, ok := view.Find("监控室工具栏"); !ok {
 		t.Fatal("监控工具栏应常驻")
 	}
-	for _, label := range []string{"开启此路声音 · 甲", "开启此路声音 · 乙", "开启此路弹幕 · 甲"} {
+	view.Move(left.X+left.W/2, left.Y+left.H/2)
+	view.Advance(200 * time.Millisecond)
+	for _, label := range []string{"开启此路声音 · 甲", "开启此路弹幕 · 甲"} {
 		if err := view.Click(label); err != nil {
 			t.Fatal(err)
 		}
 	}
+	view.Move(right.X+right.W/2, right.Y+right.H/2)
+	view.Advance(200 * time.Millisecond)
+	if _, shown := view.Find("开启此路弹幕 · 甲"); shown {
+		t.Fatal("指针离开后，画面上的控制条应收起")
+	}
+	if _, shown := view.Find("甲 正在出声"); !shown {
+		t.Fatal("出声的画面应常驻声音标记")
+	}
+	if err := view.Click("开启此路声音 · 乙"); err != nil {
+		t.Fatal(err)
+	}
 	if !a.monitorAudioEnabled("bilibili:123") || !a.monitorAudioEnabled("douyu:456") ||
 		!a.monitorState().Settings["bilibili:123"].Danmaku || a.monitorState().Settings["douyu:456"].Danmaku {
 		t.Fatal("声音或弹幕串到了另一间直播间")
+	}
+	view.Move(left.X+left.W/2, left.Y+left.H/2)
+	view.Advance(200 * time.Millisecond)
+	slider, ok := view.Find("调整 甲 的音量")
+	if !ok {
+		t.Fatal("出声的画面上应能调整这一路音量")
+	}
+	view.ClickAt(slider.X+slider.W*.3, slider.Y+slider.H/2)
+	if a.monitorVolume("bilibili:123") >= 45 || a.monitorVolume("douyu:456") != 60 {
+		t.Fatal("音量调整没有单独应用到这一路")
 	}
 	if err := view.Click("关闭此路声音 · 甲"); err != nil {
 		t.Fatal(err)
 	}
 	if a.monitorAudioEnabled("bilibili:123") || !a.monitorAudioEnabled("douyu:456") {
 		t.Fatal("静音第一路不应影响第二路")
-	}
-	slider, ok := view.Find("调整 甲 的音量")
-	if !ok {
-		t.Fatal("顶栏没有显示所选房间的音量")
-	}
-	view.ClickAt(slider.X+slider.W*.3, slider.Y+slider.H/2)
-	if a.monitorVolume("bilibili:123") >= 45 || a.monitorVolume("douyu:456") != 60 {
-		t.Fatal("音量调整没有单独应用到所选房间")
 	}
 
 	drag := func(label string, dx, dy float32) {
@@ -144,6 +150,8 @@ func TestMonitorLayoutAndRoomControls(t *testing.T) {
 	if math.Abs(float64(resized.W-(left.W-140))) > 1 || math.Abs(float64(resized.H-(left.H-150))) > 1 {
 		t.Fatalf("缩放没有跟随拖动距离：原 %+v，调整后 %+v", left, resized)
 	}
+	view.Move(resized.X+resized.W/2, resized.Y+resized.H/2)
+	view.Advance(200 * time.Millisecond)
 	drag("移动 甲", 90, 65)
 	moved, _ := view.Find("监控画面 甲")
 	other, _ := view.Find("监控画面 乙")
@@ -153,24 +161,96 @@ func TestMonitorLayoutAndRoomControls(t *testing.T) {
 	if len(a.monitorState().Layout) != 2 {
 		t.Fatal("自定义布局没有保存")
 	}
-	if err := view.Click("选择监控室直播间"); err != nil {
+	if err := view.Click("监控室布局"); err != nil {
 		t.Fatal(err)
 	}
-	if err := view.ChooseMenuItem("乙 · 斗鱼"); err != nil {
+	if err := view.ChooseMenuItem("两列"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := view.Find("调整 乙 的音量"); !ok || a.monitorSelected != "douyu:456" {
-		t.Fatal("应能从顶栏切换所选房间和音量控制")
-	}
-	if err := view.Click("自动排列"); err != nil {
-		t.Fatal(err)
-	}
-	if len(a.monitorState().Layout) != 0 {
-		t.Fatal("自动排列没有清除自定义坐标")
+	first, _ := view.Find("监控画面 甲")
+	second, _ := view.Find("监控画面 乙")
+	if len(a.monitorState().Layout) != 0 || a.monitorState().Arrange != "2" || first.W != 590 || second.W != 590 ||
+		first.Y != second.Y || math.Abs(float64(first.X-second.X)) != 590 {
+		t.Fatalf("选择固定排列后应清除自定义坐标并左右排列：%+v %+v", first, second)
 	}
 	view.Key(0, ui.KeyEscape)
 	if a.page != "favorites" {
 		t.Fatal("退出监控室后应回到原页面")
+	}
+}
+
+func TestMonitorAutoArrangeKeepsVideoProportions(t *testing.T) {
+	canvas := ui.Rect{W: 1180, H: 722}
+	for count, want := range map[int]int{1: 1, 2: 1, 3: 2, 4: 2, 9: 3} {
+		if got := monitorGridColumns(canvas, count); got != want {
+			t.Fatalf("%d 路应排成 %d 列，实际 %d 列", count, want, got)
+		}
+	}
+	frames := monitorGrid(canvas, 3, 2)
+	if frames[2].W != frames[0].W || math.Abs(float64(frames[2].X+frames[2].W/2-canvas.W/2)) > .5 {
+		t.Fatalf("末行应保持同宽并居中：%+v", frames)
+	}
+}
+
+func TestMonitorNarrowTileCanAdjustVolumeFromRoomMenu(t *testing.T) {
+	a := polishApp(t)
+	a.page = "monitor"
+	first := platforms.Room{Platform: platforms.Bilibili, ID: "123", Anchor: "甲"}
+	second := platforms.Room{Platform: platforms.Douyu, ID: "456", Anchor: "乙"}
+	a.addMonitorRoom(first)
+	a.addMonitorRoom(second)
+	a.toggleMonitorAudio(roomKey(first))
+	a.setMonitorArrangement("focus")
+	view := ui.NewTester(a.view, 1000, 650)
+	// 乙占右侧 30% 的窄格，即使静音也能预先设定音量。
+	if _, visible := view.Find("调整 乙 的音量"); visible {
+		t.Fatal("窄格应从菜单打开音量面板")
+	}
+	if err := view.Click("直播间操作 · 乙"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.ChooseMenuItem("调整音量"); err != nil {
+		t.Fatal(err)
+	}
+	view.Advance(220 * time.Millisecond)
+	slider, ok := view.Find("调整 乙 的音量")
+	if !ok {
+		t.Fatal("房间菜单没有打开音量滑块")
+	}
+	view.ClickAt(slider.X+slider.W*.25, slider.Y+slider.H/2)
+	if volume := a.monitorVolume(roomKey(second)); volume > 40 || a.monitorVolume(roomKey(first)) != 60 ||
+		a.monitorAudioEnabled(roomKey(second)) {
+		t.Fatalf("音量没有单独应用到静音的房间乙：%v", volume)
+	}
+	view.Key(0, ui.KeyEscape)
+	if a.page != "monitor" || a.monitorVolumeRoom != "" {
+		t.Fatal("Esc 应先关闭音量面板")
+	}
+}
+
+func TestMonitorDragFollowsPointerAfterHittingTheEdge(t *testing.T) {
+	a := polishApp(t)
+	a.page = "monitor"
+	a.addMonitorRoom(platforms.Room{Platform: platforms.Bilibili, ID: "123", Anchor: "甲"})
+	a.addMonitorRoom(platforms.Room{Platform: platforms.Douyu, ID: "456", Anchor: "乙"})
+	a.setMonitorArrangement("2")
+	view := ui.NewTester(a.view, 1180, 780)
+	tile, _ := view.Find("监控画面 甲")
+	view.Move(tile.X+tile.W/2, tile.Y+tile.H/2)
+	view.Advance(200 * time.Millisecond)
+	grip, ok := view.Find("移动 甲")
+	if !ok {
+		t.Fatal("缺少移动手柄")
+	}
+	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	view.Press(x, y)
+	view.Move(x-200, y)
+	view.Move(x+60, y)
+	view.Release(x+60, y)
+	view.Advance(25 * time.Millisecond)
+	moved, _ := view.Find("监控画面 甲")
+	if math.Abs(float64(moved.X-tile.X-60)) > 1 {
+		t.Fatalf("撞到左边界后往回拖，画面应跟随指针总位移：原 %+v，现 %+v", tile, moved)
 	}
 }
 
@@ -194,6 +274,46 @@ func TestMonitorBackMovesTheOutgoingPage(t *testing.T) {
 	if a.page != "favorites" || left != after.RGBAAt(24, 500) || left == before.RGBAAt(24, 500) ||
 		right != before.RGBAAt(1150, 500) || right == after.RGBAAt(1150, 500) {
 		t.Fatalf("返回中途应露出左边的关注页，并在右边保留滑出的监控室：%s，左 %v，右 %v", a.page, left, right)
+	}
+}
+
+func TestMonitorRoomReturnsThroughMonitorToOriginalPage(t *testing.T) {
+	a := polishApp(t)
+	a.ctx = context.Background()
+	a.page = "favorites"
+	room := platforms.Room{Platform: platforms.Bilibili, ID: "123", Anchor: "甲"}
+	a.addMonitorRoom(room)
+	a.monitorViewers = []*app{{
+		parent: a, monitorKey: roomKey(room), shown: true, targetRoom: room,
+		stream:      &platforms.Stream{Room: room},
+		videoBitmap: ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 16, 9))),
+	}}
+	view := ui.NewTester(a.view, 1180, 780)
+	if err := view.Click("监控室"); err != nil {
+		t.Fatal(err)
+	}
+	view.Move(550, 400)
+	view.Advance(220 * time.Millisecond)
+	if err := view.Click("直播间操作 · 甲"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.ChooseMenuItem("打开直播间"); err != nil {
+		t.Fatal(err)
+	}
+	if a.cardOpenAt.IsZero() {
+		t.Fatal("有画面的监控格应展开到播放页")
+	}
+	view.Advance(1700 * time.Millisecond)
+	if a.page != "player" {
+		t.Fatalf("展开结束后没有进入播放页：%s", a.page)
+	}
+	view.Key(0, ui.KeyEscape)
+	if a.page != "monitor" || a.returnShrink {
+		t.Fatalf("播放页应返回监控室且不启动没有目标卡片的收拢：%s", a.page)
+	}
+	view.Key(0, ui.KeyEscape)
+	if a.page != "favorites" {
+		t.Fatalf("从监控室退出时应回到之前的关注页：%s", a.page)
 	}
 }
 

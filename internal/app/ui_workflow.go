@@ -269,6 +269,9 @@ func (a *app) toggleCompanion() {
 	if a.win.IsFullScreen() {
 		a.win.SetFullScreen(false)
 	}
+	if !a.companion && a.immersive {
+		a.toggleImmersive()
+	}
 	a.companion = !a.companion
 	if a.parent != nil {
 		if a.companion {
@@ -306,8 +309,8 @@ func (a *app) toggleCompanion() {
 	}
 	if a.surface != nil {
 		// 放在窗口尺寸变化之后，避免 MyGo 重新布局标题栏时又把按钮显示出来。
-		a.surface.SetWindowButtonsVisible(!a.companion)
 		a.watchButtonsHidden = false
+		a.surface.SetWindowButtonsVisible(!a.companion)
 	}
 	if a.companion {
 		a.controlsUntil = time.Time{}

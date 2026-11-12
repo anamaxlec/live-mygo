@@ -172,13 +172,15 @@ type app struct {
 	extraWindows                           []*app
 	sideViewer                             *app
 	monitorViewers                         []*app
-	monitorPreviousAudio                   *app
+	monitorSaveTimer                       *time.Timer
 	monitorReturnPage                      string
 	monitorKey                             string
 	monitorSelected                        string
+	monitorVolumeRoom                      string
 	monitorDrag                            monitorDrag
 	immersive, watchButtonsHidden          bool
 	immersiveHeaderVisible                 bool
+	immersiveRestoreNav                    bool
 	sideFeatured                           bool
 	embedded                               bool
 	systemPicture                          systemPictureInPicture
@@ -297,11 +299,10 @@ func (a *app) start() {
 		if a.surface != nil {
 			a.surface.Show(a.surfaceShouldShow())
 		}
-		if !a.companion && !a.win.IsFullScreen() {
+		if a.watchButtonsHidden {
+			a.reapplyWindowButtons()
+		} else if !a.companion && !a.win.IsFullScreen() {
 			a.win.SetTitle(a.win.Title())
-		}
-		if a.watchButtonsHidden && a.surface != nil {
-			a.surface.SetWindowButtonsVisible(false)
 		}
 		a.refreshFavorites(false)
 	})
@@ -525,15 +526,6 @@ func (a *app) resolveRoom(source platforms.Platform, input string, quality int, 
 		if !a.library.Preferences.DisableRoomPlaybackMemory {
 			roomPreferences = a.library.Preferences.RoomPlayback
 		}
-	}
-	if a.parent != nil {
-		preference = platforms.QualityHigh
-	}
-	if a.embedded && a.parent.featuredViewer() != a || a.hasSideViewer() && a.sideFeatured {
-		preference, roomPreferences = platforms.QualityHigh, nil
-	}
-	if a.monitorKey != "" {
-		preference, roomPreferences = platforms.QualitySmooth, nil
 	}
 	go func() {
 		s, err := a.client.Resolve(ctx, p, id, quality, route...)

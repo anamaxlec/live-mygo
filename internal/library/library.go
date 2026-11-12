@@ -25,7 +25,7 @@ type State struct {
 type MonitorState struct {
 	Rooms    []platforms.Room               `json:"rooms"`
 	Audible  map[string]bool                `json:"audible,omitempty"`
-	Audio    string                         `json:"audio,omitempty"`
+	Arrange  string                         `json:"arrange,omitempty"`
 	Layout   map[string]MonitorRect         `json:"layout,omitempty"`
 	Settings map[string]MonitorRoomSettings `json:"settings,omitempty"`
 }

@@ -13,7 +13,7 @@
 [![Stars](https://img.shields.io/github/stars/anamaxlec/live-mygo?style=flat&label=Stars)](https://github.com/anamaxlec/live-mygo/stargazers)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue)](LICENSE)
 
-**[下载 macOS](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-macos-arm64.dmg)** · **[下载 Windows](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-windows-amd64-setup.exe)** · [所有版本](https://github.com/anamaxlec/live-mygo/releases) · [反馈问题](https://github.com/anamaxlec/live-mygo/issues)
+**[下载 macOS](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.6/LiveMyGo-v0.4.2-beta.6-macos-arm64.dmg)** · **[下载 Windows](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-windows-amd64-setup.exe)** · [所有版本](https://github.com/anamaxlec/live-mygo/releases) · [反馈问题](https://github.com/anamaxlec/live-mygo/issues)
 
 </div>
 
@@ -42,6 +42,7 @@
 - **弹幕设置。** 画面弹幕与右侧聊天列表独立设置，支持气泡 / 紧凑样式、字号与透明度调整，以及用户、关键词和重复内容过滤。
 - **关注管理。** 收藏、分组、置顶、设置别名，按需刷新开播状态；可以为指定关注开启开播提醒。
 - **桌面观看。** 置顶小窗、只听声音、定时停止，最多同时打开三个直播窗口；支持在同一窗口并排播放两路直播。
+- **监控室与沉浸式观看。** macOS 测试版可在同一窗口最多播放九路直播，自由摆放画面，独立调整各路声音和弹幕。单路播放和监控室都可收起顶栏，移动鼠标唤回控制条。
 - **系统媒体控件。** macOS 和 Windows 的播放控件可显示房间标题与封面。macOS 27.3 支持菜单栏「播放中」实时活动。
 - **本地数据与保存。** 关注和常用设置可用 Simple Live、纯粹直播备份格式导入导出，也可在局域网内传输备份；账号信息加密存储在本地。支持保存当前画面，以及测试中的约 30 秒直播片段功能。
 
@@ -49,10 +50,8 @@
 
 ## 下载与安装
 
-当前测试版：[0.4.2-beta.5](https://github.com/anamaxlec/live-mygo/releases/tag/v0.4.2-beta.5)。
-
-- **macOS** · Apple Silicon，macOS 26.0+：[DMG](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-macos-arm64.zip)
-- **Windows** · x64：[安装程序](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-windows-amd64-setup.exe) · [便携 ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-windows-amd64.zip)
+- **macOS** · `0.4.2-beta.6`，Apple Silicon，macOS 26.0+ · [DMG](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.6/LiveMyGo-v0.4.2-beta.6-macos-arm64.dmg) · [ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.6/LiveMyGo-v0.4.2-beta.6-macos-arm64.zip)
+- **Windows** · `0.4.2-beta.5`，x64 · [安装程序](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-windows-amd64-setup.exe) · [便携 ZIP](https://github.com/anamaxlec/live-mygo/releases/download/v0.4.2-beta.5/LiveMyGo-v0.4.2-beta.5-windows-amd64.zip)
 
 **macOS：** 打开 DMG，将 Live MyGo 拖入「应用程序」。目前采用 ad hoc 签名，尚未进行 Apple 公证；如果首次启动受到系统阻止，可前往「系统设置 → 隐私与安全性」手动允许打开。
 
@@ -70,6 +69,7 @@
 | 显示 / 隐藏画面弹幕 | `D` |
 | 唤出播放控制条 | `K` / `Tab` |
 | 刷新 / 重新连接 | `⌘ R` |
+| 切换沉浸式观看（macOS beta.6） | `T` |
 | 全屏 | `⌃ ⌘ F` |
 | 设置 | `⌘ ,` |
 

@@ -207,7 +207,7 @@ func (a *app) closePlayback() {
 	if a.page == "player" {
 		a.suspendImmersive()
 		a.page = "home"
-		a.skipBrowseEnter = true
+		a.skipBrowseEnterPage = a.page
 		a.focusMode = false
 		if !a.classicReturn() {
 			a.navReturn++

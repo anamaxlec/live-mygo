@@ -41,6 +41,9 @@ func (a *app) view(c *ui.Context) {
 		}
 	}
 	a.builtPage = a.page
+	if a.skipBrowseEnterPage != a.page {
+		a.skipBrowseEnterPage = ""
+	}
 	viewer := a.featuredViewer()
 	if a.win != nil && (!a.iconSet || a.iconDark != c.Theme().Dark) {
 		a.iconSet = true
@@ -206,10 +209,9 @@ func (a *app) view(c *ui.Context) {
 					a.surface.Show(a.surfaceShouldShow())
 				}
 				enter := &ui.Motion{Opacity: .25}
-				if a.skipBrowseEnter {
-					// 从播放页返回时视频已消失，再淡入整页只剩一片白底。
+				if a.skipBrowseEnterPage == a.page {
+					// 返回页在多次布局中都直接显示，避免首帧淡入。
 					enter = nil
-					a.skipBrowseEnter = false
 				}
 				ui.Box(c.Key("browse-page:" + a.page)).Fill().Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: ui.EaseOut, Colors: true, Enter: enter}).Children(func() { a.browseView(c) })
 			}
@@ -567,7 +569,6 @@ func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
 	}
 	a.leavePlayer()
 	a.cardOpenAt = time.Time{}
-	a.skipBrowseEnter = true
 	if !a.returnShrink || a.audioOnly() {
 		a.returnFrame = nil
 	} else if frame != nil {
@@ -580,6 +581,7 @@ func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
 		page = string(a.platform())
 	}
 	a.page = page
+	a.skipBrowseEnterPage = page
 	if page == "monitor" {
 		if !alreadyBrowsing {
 			a.pauseForMonitor()

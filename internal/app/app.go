@@ -118,7 +118,7 @@ type app struct {
 	navWidth                               float32
 	navMeasured                            bool
 	navReturn                              uint64
-	skipBrowseEnter                        bool
+	skipBrowseEnterPage                    string
 	builtPage                              string
 	returnShrink                           bool
 	returnShrinkAt                         time.Time
@@ -212,13 +212,24 @@ func (systemSecrets) Set(k string, b []byte) error {
 func Run(version string) {
 	appVersion = strings.TrimSpace(version)
 	var o options
+	var nativeVideo string
 	flag.StringVar(&o.platform, "platform", "", "启动平台；留空使用启动页设置")
 	flag.StringVar(&o.room, "room", "", "启动时播放指定房间")
 	flag.StringVar(&o.file, "file", "", "启动时播放本地测试视频")
 	flag.StringVar(&o.report, "report", "", "保存不含 Cookie 与播放 URL 的验证报告")
 	flag.DurationVar(&o.duration, "duration", 0, "验证完成后自动退出；0 表示不自动退出")
 	flag.BoolVar(&o.mute, "mute", false, "静音启动，保留音频解码")
+	flag.StringVar(&nativeVideo, "native-video", "", "使用 MyGo 原生视频窗口验证本地文件或直连 HTTP(S) 视频")
 	flag.Parse()
+	if nativeVideo != "" {
+		if o.file != "" || o.room != "" {
+			log.Fatal("-native-video 不能与 -file 或 -room 同时使用")
+		}
+		if err := runNativeVideo(nativeVideo, o); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	config, err := os.UserConfigDir()
 	if err != nil {
 		log.Fatal(err)

@@ -344,7 +344,7 @@ func (a *app) openMonitorRoom(c *ui.Context, room platforms.Room, frame ui.Rect)
 	if bitmap != nil && !c.Preferences().ReduceMotion {
 		// 从格子的位置展开到播放页，展开期间先显示格子里的最后一帧。
 		a.returnFrame = bitmap
-		a.openFromCard(c, ui.Rect{X: frame.X, Y: frame.Y + monitorToolbarHeight, W: frame.W, H: frame.H})
+		a.openFromCard(c, frame)
 	} else {
 		a.enterPlayerFromCard(false)
 	}
@@ -435,6 +435,18 @@ func (a *app) adoptStream(room platforms.Room, s *platforms.Stream) {
 
 const monitorToolbarHeight = watchHeaderHeight
 
+func (a *app) toggleMonitorImmersive(now time.Time) {
+	if a.page != "monitor" || !a.cardOpenAt.IsZero() || a.monitorDrag.key != "" {
+		return
+	}
+	next := a.monitorState()
+	next.Immersive = !next.Immersive
+	if a.saveMonitor(next) {
+		a.monitorControlsUntil = now.Add(watchControlsTimeout)
+		a.invalidateMonitor()
+	}
+}
+
 func (a *app) monitorLayer(c *ui.Context) {
 	// 返回时保留同一层，退出动效才能覆盖已经恢复的浏览页。
 	ui.Box(c.Key("monitor-layer")).Absolute().Fill().Clip().PassThrough().Children(func() {
@@ -444,18 +456,34 @@ func (a *app) monitorLayer(c *ui.Context) {
 			if a.cardOpenAt.IsZero() {
 				transition.Exit = &ui.Motion{X: width, Opacity: 1}
 			}
-			ui.Box(c.Key("monitor-page")).Absolute().Fill().
-				Transition(transition).
-				Children(func() { a.monitorView(c) })
+			page := ui.Box(c.Key("monitor-page")).Absolute().Fill().Transition(transition)
+			state := a.monitorState()
+			if state.Immersive {
+				page.HandleInput(func(event ui.InputEvent) bool {
+					if event.Kind != ui.InputPointerMove {
+						return false
+					}
+					a.monitorControlsUntil = event.Time.Add(watchControlsTimeout)
+					return true
+				})
+			}
+			page.Children(func() { a.monitorView(c, page, state) })
 		}
 	})
 }
 
-func (a *app) monitorView(c *ui.Context) {
+func (a *app) monitorView(c *ui.Context, page ui.Element, state library.MonitorState) {
 	rooms := a.monitorRooms()
 	width, height := c.Size()
-	canvas := ui.Rect{W: max(1, width), H: max(1, height-monitorToolbarHeight)}
-	state := a.monitorState()
+	target := float32(0)
+	if state.Immersive {
+		target = 1
+	}
+	progress := page.AnimateTo("immersive-layout", target, ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseInOut})
+	fullScreen := a.win != nil && a.win.IsFullScreen()
+	a.syncWatchWindowButtons(!fullScreen && (state.Immersive || progress > .005))
+	top := monitorToolbarHeight * (1 - progress)
+	canvas := ui.Rect{Y: top, W: max(1, width), H: max(1, height-top)}
 	selected := slices.IndexFunc(rooms, func(room platforms.Room) bool { return roomKey(room) == a.monitorSelected })
 	if selected < 0 && len(rooms) > 0 {
 		selected = len(rooms) - 1
@@ -469,7 +497,7 @@ func (a *app) monitorView(c *ui.Context) {
 	if len(rooms) == 0 {
 		background = colors(c.Theme()).bg
 	}
-	ui.Box(c.Key("monitor-canvas")).Absolute().Top(monitorToolbarHeight).Bottom(0).Left(0).Right(0).
+	ui.Box(c.Key("monitor-canvas")).Absolute().Top(canvas.Y).Bottom(0).Left(0).Right(0).
 		Background(background).Clip().Children(func() {
 		if len(rooms) == 0 {
 			emptyStateAction(c, iconMonitor, "监控室", "从关注中添加直播间，或将链接拖到这里。", "添加直播间", a.openQuickSearch)
@@ -481,7 +509,7 @@ func (a *app) monitorView(c *ui.Context) {
 			if a.monitorDrag.key == key {
 				frame = a.monitorDrag.frame
 			}
-			a.monitorTile(c, room, frame, canvas)
+			a.monitorTile(c, room, frame, canvas, state.Immersive)
 		}
 		for i, room := range rooms {
 			if i != selected {
@@ -490,33 +518,60 @@ func (a *app) monitorView(c *ui.Context) {
 		}
 		drawRoom(rooms[selected])
 	})
-	a.monitorToolbar(c, rooms, state)
+	a.monitorToolbar(c, len(rooms), state, progress, fullScreen)
 }
 
 // 顶栏只放影响整个监控室的操作；每一路的声音、弹幕和音量在各自画面上调整。
-func (a *app) monitorToolbar(c *ui.Context, rooms []platforms.Room, state library.MonitorState) {
+func (a *app) monitorToolbar(c *ui.Context, roomCount int, state library.MonitorState, progress float32, fullScreen bool) {
 	p := colors(c.Theme())
-	inset := titlebarLeft(c)
-	if a.win != nil && a.win.IsFullScreen() {
-		inset = 12
+	dark := colors(ui.DarkTheme())
+	background := p.sidebar.Mix(watchControlsBackground, progress)
+	p.text = p.text.Mix(dark.text, progress)
+	p.muted = p.muted.Mix(dark.muted, progress)
+	p.hover = p.hover.Mix(dark.hover, progress)
+	p.selected = p.selected.Mix(dark.selected, progress)
+	left := titlebarLeft(c)
+	if fullScreen {
+		left = 12
 	}
-	ui.Row(c.Key("monitor-toolbar")).Absolute().Top(0).Left(0).Right(0).Height(monitorToolbarHeight).
-		Padding(0, titlebarRight(c, 12), 0, inset).Gap(8).AlignItems(ui.Center).Background(p.sidebar).
-		DragWindow().Label("监控室工具栏").Children(func() {
-		if iconButton(c.Key("monitor-exit"), iconBack, "退出监控室 · Esc").Clicked() {
+	inset := 12 * progress
+	bar := ui.Row(c.Key("monitor-toolbar")).Absolute().Top(transportBottom*progress).Left(inset).Right(inset).
+		Height(monitorToolbarHeight-6*progress).Padding(0, max(12+6*progress, titlebarRight(c, 12)-inset), 0, left+(18-left)*progress).
+		Gap(8).AlignItems(ui.Center).Radius(15*progress).Background(background).Border(progress, watchControlsBorder).
+		DragWindow().Label("监控室工具栏")
+	if state.Immersive && bar.Hovered() {
+		a.monitorControlsUntil = c.Now().Add(watchControlsTimeout)
+	}
+	var target float32
+	if !state.Immersive || roomCount == 0 || a.quick.open || c.Now().Before(a.monitorControlsUntil) {
+		target = 1
+	}
+	opacity := bar.Animate("opacity", target, 160*time.Millisecond)
+	keepVisible := func(button ui.Element) ui.Element {
+		if state.Immersive && button.FocusVisible() {
+			a.monitorControlsUntil = c.Now().Add(watchControlsTimeout)
+		}
+		return button
+	}
+	bar.Opacity(opacity).Hidden(opacity < .005).Children(func() {
+		backLabel := "退出监控室 · Esc"
+		if state.Immersive || fullScreen {
+			backLabel = "退出监控室"
+		}
+		if keepVisible(paletteIconButton(c.Key("monitor-exit"), p, iconBack, backLabel)).Clicked() {
 			a.closeMonitor()
 		}
 		ui.Text(c, "监控室").FontSize(14).FontWeight(600).TextColor(p.text).Shrink(0)
-		if len(rooms) > 0 {
-			ui.Text(c, strconv.Itoa(len(rooms))+" / "+strconv.Itoa(monitorMaxRooms)).FontSize(11).TextColor(p.muted).Shrink(0)
+		if roomCount > 0 {
+			ui.Text(c, strconv.Itoa(roomCount)+" / "+strconv.Itoa(monitorMaxRooms)).FontSize(11).TextColor(p.muted).Shrink(0)
 		}
 		ui.Box(c).Grow(1)
 		label := monitorArrangementLabel(state.Arrange)
 		if len(state.Layout) != 0 {
 			label = "自由布局"
 		}
-		arrange := ui.ButtonBase(c.Key("monitor-arrange")).Height(30).PaddingX(9).Gap(6).AlignItems(ui.Center).Radius(7).
-			Label("监控室布局").Tooltip("选择固定排列；拖动画面可自由摆放").Disabled(len(rooms) == 0)
+		arrange := keepVisible(ui.ButtonBase(c.Key("monitor-arrange")).Height(30).PaddingX(9).Gap(6).AlignItems(ui.Center).Radius(7).
+			Label("监控室布局").Tooltip("选择固定排列；拖动画面可自由摆放").Disabled(roomCount == 0))
 		buttonFeedback(arrange, p)
 		arrange.Children(func() {
 			ui.Icon(c, iconMonitor).Size(14, 14).Shrink(0).TextColor(p.muted)
@@ -534,22 +589,31 @@ func (a *app) monitorToolbar(c *ui.Context, rooms []platforms.Room, state librar
 				}
 			}
 		})
-		if ui.Button(c.Key("monitor-add"), "添加直播间").Height(30).Disabled(len(rooms) >= monitorMaxRooms).Clicked() {
+		add := keepVisible(ui.ButtonBase(c.Key("monitor-add")).Height(30).PaddingX(13).Center().Radius(6).
+			Border(1, c.Theme().Border.Mix(watchControlsBorder, progress)).Label("添加直播间").Disabled(roomCount >= monitorMaxRooms))
+		buttonFeedback(add, p)
+		add.Children(func() { ui.Text(c, "添加直播间").SingleLine().FontSize(12).FontWeight(500).TextColor(p.text) })
+		if add.Clicked() {
 			a.openQuickSearch()
 		}
-		if a.win != nil {
-			icon, label := iconFullscreen, "全屏显示监控室"
-			if a.win.IsFullScreen() {
-				icon, label = iconExitFullscreen, "退出全屏"
-			}
-			if iconButton(c.Key("monitor-fullscreen"), icon, label).Clicked() {
-				a.win.ToggleFullScreen()
-			}
+		if keepVisible(paletteIconButton(c.Key("monitor-immersive"), p, iconImmersive, "沉浸式观看 · T", state.Immersive).
+			Role(ui.RoleToggleButton).Checked(state.Immersive)).Clicked() {
+			a.toggleMonitorImmersive(c.Now())
+		}
+		icon, label := iconFullscreen, "全屏显示监控室"
+		if fullScreen {
+			icon, label = iconExitFullscreen, "退出全屏"
+		}
+		if keepVisible(paletteIconButton(c.Key("monitor-fullscreen"), p, icon, label).Disabled(a.win == nil)).Clicked() {
+			a.win.ToggleFullScreen()
 		}
 	})
+	if remaining := a.monitorControlsUntil.Sub(c.Now()); state.Immersive && remaining > 0 {
+		c.After(remaining)
+	}
 }
 
-func (a *app) monitorTile(c *ui.Context, room platforms.Room, frame, canvas ui.Rect) {
+func (a *app) monitorTile(c *ui.Context, room platforms.Room, frame, canvas ui.Rect, immersive bool) {
 	key := roomKey(room)
 	viewer := a.monitorViewer(key)
 	ready := viewer != nil && !viewer.waitingForVideo()
@@ -558,9 +622,9 @@ func (a *app) monitorTile(c *ui.Context, room platforms.Room, frame, canvas ui.R
 		name = a.displayRoomName(viewer.targetRoom)
 	}
 	selected := key == a.monitorSelected
-	tile := ui.Box(c.Key("monitor:"+key)).Absolute().Left(frame.X).Top(frame.Y).Size(frame.W, frame.H).Clip().
+	tile := ui.Box(c.Key("monitor:"+key)).Absolute().Left(frame.X-canvas.X).Top(frame.Y-canvas.Y).Size(frame.W, frame.H).Clip().
 		Background(ui.Hex("#0b0b0e")).Label("监控画面 " + a.displayRoomName(room))
-	hovered := tile.Hovered() || a.monitorDrag.key == key
+	hovered := tile.Hovered() && (!immersive || c.Now().Before(a.monitorControlsUntil))
 	if tile.Clicked() {
 		a.monitorSelected = key
 	}
@@ -603,13 +667,10 @@ func (a *app) monitorTile(c *ui.Context, room platforms.Room, frame, canvas ui.R
 			})
 		}
 		opacity := float32(0)
-		if hovered || !ready || a.monitorVolumeRoom == key {
+		if hovered || !ready || a.monitorDrag.key == key || a.monitorVolumeRoom == key {
 			opacity = 1
 		}
-		if !c.Preferences().ReduceMotion {
-			opacity = tile.Animate("controls", opacity, 140*time.Millisecond)
-		}
-		a.monitorTileControls(c, room, viewer, name, frame, canvas, opacity)
+		a.monitorTileControls(c, room, viewer, name, frame, canvas, opacity, immersive)
 		if selected {
 			ink := colors(c.Theme()).accent
 			ui.Box(c.Key("selected")).Absolute().Fill().PassThrough().Role(ui.RoleNone).Draw(func(p *ui.Painter, r ui.Rect) {
@@ -619,19 +680,24 @@ func (a *app) monitorTile(c *ui.Context, room platforms.Room, frame, canvas ui.R
 	})
 	if viewer != nil && viewer.player != nil && !viewer.closing {
 		_, height := c.Size()
-		if !viewer.surface.SetBounds(float64(frame.X), float64(frame.Y+monitorToolbarHeight), float64(frame.W), float64(frame.H), float64(height)) {
+		if !viewer.surface.SetBounds(float64(frame.X), float64(frame.Y), float64(frame.W), float64(frame.H), float64(height)) {
 			c.After(12 * time.Millisecond)
 		}
 		viewer.surface.Show(viewer.surfaceShouldShow())
 	}
 }
 
-func (a *app) monitorTileControls(c *ui.Context, room platforms.Room, viewer *app, name string, frame, canvas ui.Rect, opacity float32) {
+func (a *app) monitorTileControls(c *ui.Context, room platforms.Room, viewer *app, name string, frame, canvas ui.Rect, target float32, immersive bool) {
 	key := roomKey(room)
 	ink := ui.RGBA(255, 255, 255, .84)
-	ui.Row(c.Key("monitor-controls")).Absolute().Left(6).Right(6).Bottom(6).Height(32).PaddingX(4).
-		Gap(2).AlignItems(ui.Center).Radius(8).Background(ui.RGBA(27, 28, 32, .87)).
-		Opacity(opacity).Hidden(opacity < .005).Children(func() {
+	bar := ui.Row(c.Key("monitor-controls")).Absolute().Left(6).Right(6).Bottom(6).Height(32).PaddingX(4).
+		Gap(2).AlignItems(ui.Center).Radius(8).Background(watchControlsBackground)
+	if immersive && bar.Hovered() {
+		a.monitorControlsUntil = c.Now().Add(watchControlsTimeout)
+		target = 1
+	}
+	opacity := bar.Animate("opacity", target, 140*time.Millisecond)
+	bar.Opacity(opacity).Hidden(opacity < .005).Children(func() {
 		move := ui.Row(c.Key("move")).Grow(1).MinWidth(0).FillHeight().PaddingX(5).AlignItems(ui.Center).
 			Cursor(ui.CursorMove).Label("移动 " + a.displayRoomName(room)).Tooltip("拖动房间名移动画面")
 		a.dragMonitorTile(c, move, key, frame, canvas, false)

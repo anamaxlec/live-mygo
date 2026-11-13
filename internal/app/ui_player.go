@@ -14,7 +14,9 @@ import (
 	"live-mygo/internal/player"
 )
 
-func (a *app) revealControls() { a.controlsUntil = time.Now().Add(2800 * time.Millisecond) }
+const watchControlsTimeout = 2800 * time.Millisecond
+
+func (a *app) revealControls() { a.controlsUntil = time.Now().Add(watchControlsTimeout) }
 func (a *app) playerMenuOpen() bool {
 	return a.qualityOpen || a.sourceOpen || a.danmakuOpen || a.volumeOpen
 }
@@ -505,8 +507,11 @@ func watchControlsWidth(width float32) float32 {
 	return min(724, max(1, width-36))
 }
 
+var watchControlsBackground = ui.RGBA(27, 28, 32, .87)
+var watchControlsBorder = ui.RGBA(255, 255, 255, .14)
+
 func floatingWatchControls(panel ui.Element) ui.Element {
-	return panel.Radius(15).Background(ui.RGBA(27, 28, 32, .87)).Border(1, ui.RGBA(255, 255, 255, .14))
+	return panel.Radius(15).Background(watchControlsBackground).Border(1, watchControlsBorder)
 }
 
 func (a *app) transportView(c *ui.Context, width, opacity float32) {

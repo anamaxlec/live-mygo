@@ -67,7 +67,10 @@ func colors(t *ui.Theme) palette {
 }
 
 func iconButton(c *ui.Context, icon *ui.SVG, label string, active ...bool) ui.Element {
-	p := colors(c.Theme())
+	return paletteIconButton(c, colors(c.Theme()), icon, label, active...)
+}
+
+func paletteIconButton(c *ui.Context, p palette, icon *ui.SVG, label string, active ...bool) ui.Element {
 	b := ui.ButtonBase(c).Size(30, 30).Radius(7).Center().Label(label).Tooltip(label)
 	bg := ui.Transparent
 	if b.Hovered() || b.FocusVisible() {

@@ -108,7 +108,9 @@ func monitorFrames(canvas ui.Rect, rooms []platforms.Room, state library.Monitor
 		}
 		grid = monitorFocusGrid(canvas, len(rooms))
 	default:
-		cols := monitorGridColumns(canvas, len(rooms))
+		// 按普通画布选列数，顶栏收起时各路沿用原来的行列。
+		regularCanvas := ui.Rect{W: canvas.W, H: max(1, canvas.Y+canvas.H-monitorToolbarHeight)}
+		cols := monitorGridColumns(regularCanvas, len(rooms))
 		for _, item := range monitorArrangements {
 			if item.id == state.Arrange && item.columns > 0 {
 				cols = item.columns
@@ -123,7 +125,7 @@ func monitorFrames(canvas ui.Rect, rooms []platforms.Room, state library.Monitor
 			height := min(canvas.H, max(monitorMinTileHeight, saved.H*canvas.H))
 			x := max(0, min(canvas.W-width, saved.X*canvas.W))
 			y := max(0, min(canvas.H-height, saved.Y*canvas.H))
-			frames[key] = ui.Rect{X: x, Y: y, W: width, H: height}
+			frames[key] = ui.Rect{X: canvas.X + x, Y: canvas.Y + y, W: width, H: height}
 			continue
 		}
 		frames[key] = grid[i]
@@ -163,12 +165,12 @@ func (a *app) dragMonitorTile(c *ui.Context, grip ui.Element, key string, frame,
 	dx, dy := px-drag.startX, py-drag.startY
 	next := drag.origin
 	if resize {
-		maxWidth, maxHeight := canvas.W-next.X, canvas.H-next.Y
+		maxWidth, maxHeight := canvas.X+canvas.W-next.X, canvas.Y+canvas.H-next.Y
 		next.W = max(min(monitorMinTileWidth, maxWidth), min(maxWidth, next.W+dx))
 		next.H = max(min(monitorMinTileHeight, maxHeight), min(maxHeight, next.H+dy))
 	} else {
-		next.X = max(0, min(canvas.W-next.W, next.X+dx))
-		next.Y = max(0, min(canvas.H-next.H, next.Y+dy))
+		next.X = max(canvas.X, min(canvas.X+canvas.W-next.W, next.X+dx))
+		next.Y = max(canvas.Y, min(canvas.Y+canvas.H-next.H, next.Y+dy))
 	}
 	if next != drag.frame {
 		drag.frame, drag.changed = next, true
@@ -191,7 +193,7 @@ func (a *app) finishMonitorDrag(canvas ui.Rect) {
 		key := roomKey(room)
 		frame := frames[key]
 		next.Layout[key] = library.MonitorRect{
-			X: frame.X / canvas.W, Y: frame.Y / canvas.H,
+			X: (frame.X - canvas.X) / canvas.W, Y: (frame.Y - canvas.Y) / canvas.H,
 			W: frame.W / canvas.W, H: frame.H / canvas.H,
 		}
 	}

@@ -32,8 +32,13 @@ func (a *app) view(c *ui.Context) {
 	}
 	a.acceptLiveLinkDrop(c)
 	a.advanceCardOpen(c)
-	if a.page == "player" && a.builtPage != "player" {
-		a.restoreImmersive()
+	if a.page != a.builtPage {
+		switch a.page {
+		case "player":
+			a.restoreImmersive()
+		case "monitor":
+			a.monitorControlsUntil = c.Now().Add(watchControlsTimeout)
+		}
 	}
 	a.builtPage = a.page
 	viewer := a.featuredViewer()
@@ -62,7 +67,7 @@ func (a *app) view(c *ui.Context) {
 		return
 	}
 	fullScreen := a.page == "player" && a.win != nil && a.win.IsFullScreen()
-	if a.page != "player" || fullScreen || a.companion {
+	if a.page != "monitor" && (a.page != "player" || fullScreen || a.companion) {
 		a.syncWatchWindowButtons(false)
 	}
 	if fullScreen {
@@ -135,9 +140,13 @@ func (a *app) view(c *ui.Context) {
 	}
 	if a.page == "monitor" {
 		if !a.quick.open && !openingRoom && a.monitorVolumeRoom == "" {
+			now := c.Now()
+			c.OnShortcut(0, ui.KeyT, func() { a.toggleMonitorImmersive(now) })
 			c.OnShortcut(0, ui.KeyEscape, func() {
 				if a.win != nil && a.win.IsFullScreen() {
 					a.win.SetFullScreen(false)
+				} else if a.monitorState().Immersive {
+					a.toggleMonitorImmersive(now)
 				} else {
 					a.closeMonitor()
 				}

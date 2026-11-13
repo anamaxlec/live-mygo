@@ -6,11 +6,14 @@ import (
 	"context"
 	"image"
 	"math"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"live-mygo/internal/library"
 	"live-mygo/internal/platforms"
+	"live-mygo/internal/player"
 )
 
 func TestImmersiveFadesBothBarsAndKeepsWindowButtonsOverSidebar(t *testing.T) {
@@ -137,6 +140,142 @@ func TestImmersiveReturnsWithMotionAndRestoresOnReentry(t *testing.T) {
 	view.Advance(300 * time.Millisecond)
 	if !a.immersive || !a.focusMode || !a.watchButtonsHidden {
 		t.Fatal("再次进入播放页应恢复记住的沉浸模式")
+	}
+}
+
+func TestMonitorImmersiveFillsCanvasAndRevealsToolbar(t *testing.T) {
+	a := polishApp(t)
+	a.page = "monitor"
+	a.addMonitorRoom(platforms.Room{Platform: platforms.Bilibili, ID: "123", Anchor: "甲"})
+	a.addMonitorRoom(platforms.Room{Platform: platforms.Douyu, ID: "456", Anchor: "乙"})
+	for _, room := range a.monitorRooms() {
+		a.monitorViewers = append(a.monitorViewers, &app{monitorKey: roomKey(room), targetRoom: room, shown: true,
+			videoBitmap: ui.NewBitmap(image.NewRGBA(image.Rect(0, 0, 1, 1))), stats: player.Stats{Width: 1280, Height: 720}})
+	}
+	view := ui.NewTester(a.view, 1180, 780)
+	switchButton, switchOK := view.Find("沉浸式观看 · T")
+	fullscreen, fullOK := view.Find("全屏显示监控室")
+	before, beforeOK := view.Find("监控画面 甲")
+	if !switchOK || !fullOK || switchButton.Y != fullscreen.Y || switchButton.X >= fullscreen.X ||
+		!beforeOK || before.Y != monitorToolbarHeight || before.W != 1180 {
+		t.Fatalf("普通工具栏或画布位置不对：开关 %+v，全屏 %+v，画布 %+v", switchButton, fullscreen, before)
+	}
+	if err := view.Click("沉浸式观看 · T"); err != nil {
+		t.Fatal(err)
+	}
+	view.Move(400, 300)
+	view.Advance(250 * time.Millisecond)
+	first, firstOK := view.Find("监控画面 甲")
+	second, secondOK := view.Find("监控画面 乙")
+	if !a.monitorState().Immersive || a.library.Preferences.Immersive || !a.watchButtonsHidden || !firstOK || !secondOK ||
+		first.Y != 0 || first.W != before.W || second.Y != first.H || second.Y+second.H != 780 {
+		t.Fatalf("沉浸模式应独立保存，并沿原来的行列铺满窗口：%+v %+v", first, second)
+	}
+	if _, shown := view.Find("监控室工具栏"); !shown {
+		t.Fatal("进入沉浸模式后应先显示悬浮工具栏")
+	}
+	if _, shown := view.Find("开启此路声音 · 甲"); !shown {
+		t.Fatal("移动鼠标时应能操作这一路的声音")
+	}
+	view.Advance(watchControlsTimeout + 200*time.Millisecond)
+	if _, shown := view.Find("监控室工具栏"); shown || !a.watchButtonsHidden {
+		t.Fatal("无操作后应淡出工具栏，红绿灯继续隐藏")
+	}
+	if _, shown := view.Find("开启此路声音 · 甲"); shown {
+		t.Fatal("画面上的控制条也应淡出")
+	}
+	view.Move(420, 310)
+	view.Advance(200 * time.Millisecond)
+	bar, shown := view.Find("监控室工具栏")
+	current, _ := view.Find("监控画面 甲")
+	if !shown || !a.watchButtonsHidden || current != first || bar.X != 12 || bar.Y != transportBottom || bar.W != 1180-24 {
+		t.Fatalf("唤回工具栏应悬浮在原画面上：工具栏 %+v，画面 %+v", bar, current)
+	}
+	view.Move(bar.X+bar.W/2, bar.Y+bar.H/2)
+	view.Advance(watchControlsTimeout + 200*time.Millisecond)
+	if _, shown := view.Find("监控室布局"); !shown {
+		t.Fatal("悬停工具栏时应保留控件")
+	}
+	if err := view.Click("监控室布局"); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.ChooseMenuItem("两列"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ = view.Find("监控画面 甲")
+	if first.Y != 0 || first.W != 590 {
+		t.Fatalf("悬浮工具栏应能修改布局：%+v", first)
+	}
+	if err := view.Click("添加直播间"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.quick.open {
+		t.Fatal("悬浮工具栏应能打开添加直播间面板")
+	}
+	view.Key(0, ui.KeyEscape)
+	if a.quick.open || !a.monitorState().Immersive {
+		t.Fatal("Esc 应先关闭添加面板")
+	}
+	view.Key(0, ui.KeyEscape)
+	view.Advance(250 * time.Millisecond)
+	first, _ = view.Find("监控画面 甲")
+	if a.page != "monitor" || a.monitorState().Immersive || a.watchButtonsHidden || first.Y != monitorToolbarHeight {
+		t.Fatal("Esc 应恢复监控室工具栏和窗口按钮")
+	}
+	view.Key(0, ui.KeyT)
+	view.Advance(250 * time.Millisecond)
+	if !a.monitorState().Immersive {
+		t.Fatal("T 应重新进入沉浸模式")
+	}
+}
+
+func TestMonitorImmersiveRestoresSavedLayoutAndRoomSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.json")
+	state, err := library.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := polishApp(t)
+	a.library = state
+	a.page = "monitor"
+	room := platforms.Room{Platform: platforms.Bilibili, ID: "123", Anchor: "甲"}
+	a.addMonitorRoom(room)
+	view := ui.NewTester(a.view, 1180, 780)
+	view.Key(0, ui.KeyT)
+	view.Move(550, 350)
+	view.Advance(250 * time.Millisecond)
+	for _, label := range []string{"开启此路声音 · 甲", "开启此路弹幕 · 甲"} {
+		if err := view.Click(label); err != nil {
+			t.Fatal(err)
+		}
+	}
+	grip, ok := view.Find("缩放 甲")
+	if !ok {
+		t.Fatal("沉浸模式应能调整画面大小")
+	}
+	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
+	view.Press(x, y)
+	view.Move(x-140, y-160)
+	view.Release(x-140, y-160)
+	view.Advance(200 * time.Millisecond)
+	tile, _ := view.Find("监控画面 甲")
+	if tile.W != 1040 || tile.H != 620 {
+		t.Fatalf("沉浸画布的缩放应使用窗口边界：%+v", tile)
+	}
+	saved, err := library.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.library = saved
+	key := roomKey(room)
+	if !a.monitorState().Immersive || !a.monitorAudioEnabled(key) || !a.monitorState().Settings[key].Danmaku {
+		t.Fatal("监控室的沉浸状态、声音和弹幕应能从本机配置恢复")
+	}
+	view.Key(0, ui.KeyEscape)
+	view.Advance(250 * time.Millisecond)
+	regular, _ := view.Find("监控画面 甲")
+	if regular.W != tile.W || regular.Y != monitorToolbarHeight || math.Abs(float64(regular.H-tile.H*(780-monitorToolbarHeight)/780)) > .5 {
+		t.Fatalf("退出沉浸后应继续使用保存的相对坐标：%+v", regular)
 	}
 }
 

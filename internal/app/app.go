@@ -179,6 +179,7 @@ type app struct {
 	monitorSelected                        string
 	monitorVolumeRoom                      string
 	monitorDrag                            monitorDrag
+	monitorControlsUntil                   time.Time
 	immersive, watchButtonsHidden          bool
 	immersiveRestoreNav                    bool
 	sideFeatured                           bool

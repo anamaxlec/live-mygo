@@ -75,7 +75,7 @@ func (a *app) immersiveHeader(c *ui.Context, viewer *app, opacity float32) {
 	})
 }
 
-// 只有这里改写系统窗口按钮；focus、resize 后调用 reapplyWindowButtons 恢复。
+// 播放页和监控室共用系统窗口按钮的显隐状态。
 func (a *app) syncWatchWindowButtons(hide bool) {
 	if a.companion || hide == a.watchButtonsHidden {
 		return

@@ -176,7 +176,8 @@ func (a *app) view(c *ui.Context) {
 		header = desktop.AnimateTo("watch-header", header, ui.Animation{Duration: 170 * time.Millisecond, Ease: ui.EaseInOut})
 	}
 	if a.builtPage == "player" {
-		a.syncWatchWindowButtons(a.immersive || header < watchHeaderHeight-.1)
+		// 侧栏展开时左上角留给系统窗口按钮，收起后才给沉浸顶栏让位。
+		a.syncWatchWindowButtons((a.immersive || header < watchHeaderHeight-.1) && a.navWidth < sidebarWidth*.5)
 	}
 	desktop.Children(func() {
 		a.desktopSidebar(c, a.navWidth, p)

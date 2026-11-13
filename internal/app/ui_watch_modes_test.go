@@ -13,7 +13,7 @@ import (
 	"live-mygo/internal/platforms"
 )
 
-func TestImmersiveFadesBothBarsWithoutShowingWindowButtons(t *testing.T) {
+func TestImmersiveFadesBothBarsAndKeepsWindowButtonsOverSidebar(t *testing.T) {
 	a := polishApp(t)
 	a.page, a.shown = "player", true
 	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "123", Title: "测试直播"}
@@ -72,6 +72,31 @@ func TestImmersiveFadesBothBarsWithoutShowingWindowButtons(t *testing.T) {
 	}
 	if _, shown := view.Find("沉浸式观看 · T"); !shown {
 		t.Fatal("再次显示顶栏时也应显示底栏")
+	}
+	if err := view.Click("显示 / 隐藏导航侧栏"); err != nil {
+		t.Fatal(err)
+	}
+	view.Advance(300 * time.Millisecond)
+	if !a.immersive || a.focusMode || a.watchButtonsHidden {
+		t.Fatal("沉浸模式下展开左侧导航应显示系统窗口按钮")
+	}
+	view.Move(chat.X+chat.W/2, 300)
+	view.Advance(3200 * time.Millisecond)
+	view.Advance(200 * time.Millisecond)
+	if _, shown := view.Find("沉浸式浮动顶栏"); shown || a.watchButtonsHidden {
+		t.Fatal("左侧导航展开时，悬浮栏收起也应保留系统窗口按钮")
+	}
+	video, _ = view.Find("直播画面，双击切换全屏")
+	view.Move(video.X+video.W/2, video.Y+video.H/2)
+	a.controlsUntil = view.Now().Add(2800 * time.Millisecond)
+	view.Frame()
+	view.Advance(200 * time.Millisecond)
+	if err := view.Click("显示 / 隐藏导航侧栏"); err != nil {
+		t.Fatal(err)
+	}
+	view.Advance(300 * time.Millisecond)
+	if !a.immersive || !a.focusMode || !a.watchButtonsHidden {
+		t.Fatal("沉浸模式下收起左侧导航应重新隐藏系统窗口按钮")
 	}
 	view.Key(0, ui.KeyEscape)
 	view.Advance(300 * time.Millisecond)

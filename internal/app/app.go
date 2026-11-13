@@ -123,6 +123,7 @@ type app struct {
 	returnShrink                           bool
 	returnShrinkAt                         time.Time
 	returnFromOpen                         bool
+	returnImmersive                        bool
 	returnWasBusy                          bool
 	returnFrame                            *ui.Bitmap
 	returnCapture                          *time.Timer
@@ -179,7 +180,6 @@ type app struct {
 	monitorVolumeRoom                      string
 	monitorDrag                            monitorDrag
 	immersive, watchButtonsHidden          bool
-	immersiveHeaderVisible                 bool
 	immersiveRestoreNav                    bool
 	sideFeatured                           bool
 	embedded                               bool

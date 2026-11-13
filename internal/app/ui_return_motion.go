@@ -19,7 +19,7 @@ const (
 )
 
 func (a *app) classicReturn() bool {
-	return a.immersive || a.hasSideViewer() || a.library != nil && a.library.Preferences.ClassicReturn
+	return a.hasSideViewer() || a.library != nil && a.library.Preferences.ClassicReturn
 }
 
 func returnCardScale(elapsed time.Duration) float32 {
@@ -150,6 +150,7 @@ func (a *app) returnShrinkView(c *ui.Context) {
 	}
 	if a.page == "player" || a.classicReturn() || (a.stream == nil && a.targetRoom.ID == "") {
 		a.returnShrink = false
+		a.returnImmersive = false
 		a.returnShrinkAt = time.Time{}
 		a.returnFrame = nil
 		return
@@ -175,6 +176,7 @@ func (a *app) returnShrinkView(c *ui.Context) {
 			return
 		}
 		a.returnShrink = false
+		a.returnImmersive = false
 		a.returnShrinkAt = time.Time{}
 		a.normalMinimum()
 		return
@@ -192,6 +194,7 @@ func (a *app) openFromCard(c *ui.Context, bounds ui.Rect) {
 		return
 	}
 	a.returnShrink = false
+	a.returnImmersive = false
 	a.returnShrinkAt = time.Time{}
 	a.rememberHomeCatalog()
 	a.returnPage = a.page
@@ -310,6 +313,10 @@ func (a *app) cardOpenView(c *ui.Context) {
 func (a *app) playerMotionSheet(c *ui.Context, fx returnToCardEffect, nav, chat float32, initial bool) {
 	width, height := c.Size()
 	p := colors(c.Theme())
+	header := a.watchHeaderTarget()
+	if a.returnShrink && a.returnImmersive {
+		header = 0
+	}
 	a.snap, a.snapNav, a.snapChat = true, nav, chat
 	ui.Overlay(c, func() {
 		sheet := ui.Box(c.Key("return-to-card")).Absolute().Left(0).Top(0).Size(width, height).Background(p.bg).Clip()
@@ -322,9 +329,9 @@ func (a *app) playerMotionSheet(c *ui.Context, fx returnToCardEffect, nav, chat 
 		sheet.Children(func() {
 			ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 				a.desktopSidebar(c, a.snapNav, p)
-				ui.Box(c).Grow(1).MinWidth(0).Children(func() { a.contentView(c, a.watchHeaderTarget()) })
+				ui.Box(c).Grow(1).MinWidth(0).Children(func() { a.contentView(c, header) })
 			})
-			if !a.immersive {
+			if header > 0 {
 				ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
 			}
 		})

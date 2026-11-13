@@ -205,6 +205,7 @@ func (a *app) closePlayback() {
 	}
 	a.stop()
 	if a.page == "player" {
+		a.suspendImmersive()
 		a.page = "home"
 		a.skipBrowseEnter = true
 		a.focusMode = false
@@ -270,7 +271,8 @@ func (a *app) toggleCompanion() {
 		a.win.SetFullScreen(false)
 	}
 	if !a.companion && a.immersive {
-		a.toggleImmersive()
+		a.suspendImmersive()
+		a.featuredViewer().closePlayerMenus()
 	}
 	a.companion = !a.companion
 	if a.parent != nil {
@@ -316,6 +318,8 @@ func (a *app) toggleCompanion() {
 		a.controlsUntil = time.Time{}
 		a.controlsHeld, a.controlsKeyboard = false, false
 	} else {
+		a.restoreImmersive()
+		a.syncWatchWindowButtons(a.immersive)
 		a.revealControls()
 	}
 	a.win.Invalidate()
@@ -325,7 +329,7 @@ func (a *app) companionView(c *ui.Context) {
 	if a.surface != nil {
 		a.surface.SetCorners(0, false)
 	}
-	a.videoView(c, ui.Rect{W: w, H: h})
+	a.videoView(c, ui.Rect{W: w, H: h}, false)
 }
 
 func (a *app) companionHeader(c *ui.Context, opacity float32) {

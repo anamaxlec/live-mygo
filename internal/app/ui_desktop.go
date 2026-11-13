@@ -32,6 +32,9 @@ func (a *app) view(c *ui.Context) {
 	}
 	a.acceptLiveLinkDrop(c)
 	a.advanceCardOpen(c)
+	if a.page == "player" && a.builtPage != "player" {
+		a.restoreImmersive()
+	}
 	a.builtPage = a.page
 	viewer := a.featuredViewer()
 	if a.win != nil && (!a.iconSet || a.iconDark != c.Theme().Dark) {
@@ -60,7 +63,6 @@ func (a *app) view(c *ui.Context) {
 	}
 	fullScreen := a.page == "player" && a.win != nil && a.win.IsFullScreen()
 	if a.page != "player" || fullScreen || a.companion {
-		a.immersiveHeaderVisible = false
 		a.syncWatchWindowButtons(false)
 	}
 	if fullScreen {
@@ -173,8 +175,8 @@ func (a *app) view(c *ui.Context) {
 	if a.builtPage == "player" && !c.Preferences().ReduceMotion {
 		header = desktop.AnimateTo("watch-header", header, ui.Animation{Duration: 170 * time.Millisecond, Ease: ui.EaseInOut})
 	}
-	if a.builtPage == "player" && !a.immersive {
-		a.syncWatchWindowButtons(header < watchHeaderHeight-.1)
+	if a.builtPage == "player" {
+		a.syncWatchWindowButtons(a.immersive || header < watchHeaderHeight-.1)
 	}
 	desktop.Children(func() {
 		a.desktopSidebar(c, a.navWidth, p)
@@ -209,9 +211,7 @@ func (a *app) view(c *ui.Context) {
 			ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(watchHeaderHeight).Children(func() { a.watchHeader(c) })
 		})
 	}
-	if a.builtPage == "player" && a.immersive && header < .1 {
-		a.immersiveHeader(c)
-	} else if a.builtPage != "player" {
+	if a.builtPage != "player" {
 		if iconButton(c.Key("browse-sidebar"), iconSidebar, "显示 / 隐藏导航侧栏", !a.focusMode).Absolute().Left(browseSidebarLeft(c)).Top((watchHeaderHeight - 30) / 2).Clicked() {
 			a.focusMode = !a.focusMode
 		}
@@ -447,6 +447,7 @@ func (a *app) openPage(page string) {
 	}
 	a.cancelReturnCapture()
 	a.returnShrink = false
+	a.returnImmersive = false
 	a.returnShrinkAt = time.Time{}
 	a.rememberHomeCatalog()
 	if a.catalogCancel != nil {
@@ -548,6 +549,7 @@ func (a *app) finishBackToBrowse(frame *ui.Bitmap) {
 	alreadyBrowsing := a.page != "player"
 	hasRoom := a.stream != nil || a.targetRoom.ID != ""
 	a.returnShrink = a.returnPage != "monitor" && !a.classicReturn() && hasRoom
+	a.returnImmersive = a.returnShrink && a.immersive
 	a.returnWasBusy = a.returnShrink && a.busy
 	a.returnFromOpen = false
 	if !a.returnShrink {

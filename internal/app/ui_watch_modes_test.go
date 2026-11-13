@@ -13,7 +13,7 @@ import (
 	"live-mygo/internal/platforms"
 )
 
-func TestImmersiveKeepsCommentsAndHidesTheSidebar(t *testing.T) {
+func TestImmersiveFadesBothBarsWithoutShowingWindowButtons(t *testing.T) {
 	a := polishApp(t)
 	a.page, a.shown = "player", true
 	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "123", Title: "测试直播"}
@@ -41,37 +41,77 @@ func TestImmersiveKeepsCommentsAndHidesTheSidebar(t *testing.T) {
 		chat.W != chatBefore.W || chat.X+chat.W != chatBefore.X+chatBefore.W {
 		t.Fatalf("沉浸时应收起顶栏和侧栏、保留弹幕列表：画面 %+v → %+v，弹幕 %+v → %+v", videoBefore, video, chatBefore, chat)
 	}
-	if _, shown := view.Find("沉浸式浮动顶栏"); shown {
-		t.Fatal("指针在画面中时不应弹出顶栏")
-	}
 	if !a.watchButtonsHidden {
 		t.Fatal("沉浸时应隐藏系统窗口按钮")
 	}
-	view.Move(video.X+video.W/2, video.Y+5)
-	view.Advance(180 * time.Millisecond)
 	panel, shown := view.Find("沉浸式浮动顶栏")
-	if !shown || math.Abs(float64(panel.X+panel.W/2-video.X-video.W/2)) > .5 ||
-		panel.W != watchControlsWidth(video.W) || math.Abs(float64(panel.Y-video.Y-transportBottom)) > .5 {
-		t.Fatalf("浮动顶栏没有按底栏宽度和边距对齐：%+v，画面 %+v", panel, video)
-	}
-	if a.watchButtonsHidden {
-		t.Fatal("浮动顶栏出现时应一并显示系统窗口按钮")
+	if !shown || panel.W != video.W-24 || math.Abs(float64(panel.Y-video.Y-transportBottom)) > .5 {
+		t.Fatalf("移动画面内的指针应显示沉浸顶栏：%+v，画面 %+v", panel, video)
 	}
 	view.Move(panel.X+panel.W/2, panel.Y+panel.H/2)
 	view.Advance(180 * time.Millisecond)
-	if _, shown := view.Find("直播间选项"); !shown {
-		t.Fatal("移入浮动顶栏后应保留直播间操作")
+	if _, shown := view.Find("直播间选项"); !shown || !a.watchButtonsHidden {
+		t.Fatal("顶栏可用时仍应隐藏系统窗口按钮")
 	}
 	view.Move(chat.X+chat.W/2, 300)
-	view.Advance(180 * time.Millisecond)
-	if _, shown := view.Find("沉浸式浮动顶栏"); shown || !a.watchButtonsHidden {
-		t.Fatal("指针移到侧边评论区后应收起浮动顶栏和窗口按钮")
+	view.Advance(3200 * time.Millisecond)
+	view.Advance(200 * time.Millisecond)
+	if _, shown := view.Find("沉浸式浮动顶栏"); shown {
+		t.Fatal("无操作时应收起沉浸顶栏")
+	}
+	if _, shown := view.Find("沉浸式观看 · T"); shown || !a.watchButtonsHidden {
+		t.Fatal("无操作时应同时收起底栏，系统窗口按钮仍隐藏")
+	}
+	// 测试时钟已经推进，设定与真实鼠标移动等效的控制条超时。
+	view.Move(video.X+video.W/2, video.Y+video.H/2)
+	a.controlsUntil = view.Now().Add(2800 * time.Millisecond)
+	view.Frame()
+	view.Advance(200 * time.Millisecond)
+	if _, shown := view.Find("沉浸式浮动顶栏"); !shown || !a.watchButtonsHidden {
+		t.Fatal("再次显示控制条时不应显示系统窗口按钮")
+	}
+	if _, shown := view.Find("沉浸式观看 · T"); !shown {
+		t.Fatal("再次显示顶栏时也应显示底栏")
 	}
 	view.Key(0, ui.KeyEscape)
 	view.Advance(300 * time.Millisecond)
 	video, _ = view.Find("直播画面，双击切换全屏")
-	if a.page != "player" || a.immersive || a.focusMode || video != videoBefore {
+	if a.page != "player" || a.immersive || a.focusMode || a.watchButtonsHidden || video != videoBefore {
 		t.Fatalf("Esc 应退出沉浸模式并恢复侧栏和原布局：%+v", video)
+	}
+}
+
+func TestImmersiveReturnsWithMotionAndRestoresOnReentry(t *testing.T) {
+	a := polishApp(t)
+	a.page, a.shown, a.returnPage = "player", true, "favorites"
+	a.targetRoom = platforms.Room{Platform: platforms.Bilibili, ID: "123", Title: "测试直播"}
+	a.stream = &platforms.Stream{Room: a.targetRoom}
+	view := ui.NewTester(a.view, 1180, 780)
+	view.Key(0, ui.KeyT)
+	view.Move(480, 540)
+	view.Advance(300 * time.Millisecond)
+	if !a.library.Preferences.Immersive {
+		t.Fatal("应记住所选的沉浸模式")
+	}
+	if err := view.Click("返回列表 · Esc"); err != nil {
+		t.Fatal(err)
+	}
+	view.Advance(20 * time.Millisecond)
+	if a.page != "favorites" || !a.returnShrink || !a.returnImmersive {
+		t.Fatal("从沉浸顶栏返回应播放卡片收拢动画")
+	}
+	if _, shown := view.Find("沉浸式浮动顶栏"); !shown {
+		t.Fatal("返回动效应沿用沉浸布局")
+	}
+	view.Advance(returnCardCatchEnd + 100*time.Millisecond)
+	if a.returnShrink || a.returnImmersive || a.watchButtonsHidden {
+		t.Fatal("返回完成后应恢复浏览页窗口按钮")
+	}
+	a.page = "player"
+	view.Frame()
+	view.Advance(300 * time.Millisecond)
+	if !a.immersive || !a.focusMode || !a.watchButtonsHidden {
+		t.Fatal("再次进入播放页应恢复记住的沉浸模式")
 	}
 }
 

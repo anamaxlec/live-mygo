@@ -108,7 +108,7 @@ func TestChannelTuningIsBoundedAndDoesNotChangeRoomState(t *testing.T) {
 func TestCompanionVideoFillsLayoutAfterNativeWindowSizeChanges(t *testing.T) {
 	a := polishApp(t)
 	a.companion = true
-	tester := ui.NewTester(func(c *ui.Context) { a.videoView(c, ui.Rect{W: 320, H: 360}) }, 640, 360)
+	tester := ui.NewTester(func(c *ui.Context) { a.videoView(c, ui.Rect{W: 320, H: 360}, false) }, 640, 360)
 	r, ok := tester.Find("直播画面，双击切换全屏")
 	if !ok || r.W != 640 {
 		t.Fatal("小窗沿用了旧宽度，没有铺满新窗口", r)

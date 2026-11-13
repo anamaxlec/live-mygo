@@ -80,6 +80,7 @@ type Preferences struct {
 	DefaultQuality    string        `json:"default_quality"`
 	PauseWhenBrowsing bool          `json:"pause_when_browsing"`
 	ClassicReturn     bool          `json:"classic_return,omitempty"`
+	Immersive         bool          `json:"immersive,omitempty"`
 	Danmaku           bool          `json:"danmaku"`
 	DanmakuSize       float64       `json:"danmaku_size"`
 	DanmakuOpacity    float64       `json:"danmaku_opacity"`

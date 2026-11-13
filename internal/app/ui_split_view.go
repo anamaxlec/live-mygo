@@ -123,10 +123,10 @@ func splitVideoWidths(width float32) (primary, secondary float32) {
 	return max(1, width-secondary-splitVideoGap), secondary
 }
 
-func (a *app) splitVideoView(c *ui.Context, frame ui.Rect) {
+func (a *app) splitVideoView(c *ui.Context, frame ui.Rect, floatingHeader bool) {
 	primary := a.featuredViewer()
 	if a.snap || !a.hasSideViewer() {
-		a.videoView(c, frame)
+		a.videoView(c, frame, floatingHeader)
 		return
 	}
 	secondary := a.secondaryViewer()
@@ -138,7 +138,7 @@ func (a *app) splitVideoView(c *ui.Context, frame ui.Rect) {
 	if secondary.surface != nil && secondary.player != nil {
 		secondary.surface.SetCorners(0, false)
 	}
-	primary.videoView(c, frame)
+	primary.videoView(c, frame, floatingHeader)
 	ui.Box(c).Width(splitVideoGap).FillHeight().Shrink(0).Background(colors(c.Theme()).line)
 	secondaryFrame := ui.Rect{X: frame.X + frame.W + splitVideoGap, Y: frame.Y, W: width, H: frame.H}
 	a.secondaryVideoView(c, secondary, secondaryFrame)

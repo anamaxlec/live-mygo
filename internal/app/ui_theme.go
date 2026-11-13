@@ -99,9 +99,7 @@ func (a *app) leavePlayer() {
 	if a.page != "player" && a.cardOpenAt.IsZero() {
 		return
 	}
-	if a.immersive {
-		a.immersive, a.immersiveRestoreNav, a.immersiveHeaderVisible = false, false, false
-	}
+	a.suspendImmersive()
 	if a.busy {
 		a.generation++
 		if a.resolveCancel != nil {

@@ -94,6 +94,7 @@ func (a *app) contentView(c *ui.Context, header float32) {
 	}
 	width, height := c.Size()
 	layout := watchGeometry(width, height, header, sidebar, chatWidth, !full)
+	floatingHeader := !full && header < .1 && (a.immersive || a.snap && a.returnImmersive)
 	inset, edge, radius := float32(0), float32(0), float32(0)
 	if !full {
 		inset, edge, radius = watchFrameInset, watchFrameBorder, watchFrameRadius
@@ -123,7 +124,7 @@ func (a *app) contentView(c *ui.Context, header float32) {
 			frame.Children(func() {
 				ui.Column(c).Fill().Padding(edge).Radius(radius).Clip().Children(func() {
 					ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-						a.splitVideoView(c, layout.Video)
+						a.splitVideoView(c, layout.Video, floatingHeader)
 						ui.Box(c.Key("chat-reveal")).Width(chatWidth).Shrink(0).FillHeight().Radius(0, max(0, radius-edge), max(0, radius-edge), 0).Clip().Hidden(chatWidth < .1).Children(func() { viewer.chatView(c, chatWidth) })
 					})
 				})
@@ -191,6 +192,10 @@ func watchHeaderInset(c *ui.Context, sidebar float32) float32 {
 }
 
 func (a *app) watchHeader(c *ui.Context) {
+	viewer := a.featuredViewer()
+	if a.snap {
+		viewer = a
+	}
 	sidebar := sidebarWidth
 	if a.focusMode && !a.navMeasured {
 		sidebar = 0
@@ -208,27 +213,27 @@ func (a *app) watchHeader(c *ui.Context) {
 		gap = max(watchTitleGap, sidebar+watchFrameInset+watchFrameBorder-inset-watchNavigationWidth)
 	}
 	ui.Box(c).Fill().Background(a.watchChrome(c)).Children(func() {
-		a.watchHeaderControls(c, inset, titlebarRight(c, 16), gap, false)
+		a.watchHeaderControls(c, viewer, inset, titlebarRight(c, 16), gap, false)
 	})
 }
 
-func (a *app) watchHeaderControls(c *ui.Context, left, right, gap float32, floating bool) {
-	viewer := a.featuredViewer()
-	if a.snap {
-		viewer = a
-	}
+func (a *app) watchHeaderControls(c *ui.Context, viewer *app, left, right, gap float32, floating bool) {
 	p := colors(c.Theme())
+	navWidth, navGap, actionGap := watchNavigationWidth, float32(5), float32(0)
+	titleSize, titleGap := float32(13.5), float32(5)
 	button := func(c *ui.Context, icon *ui.SVG, label string, active ...bool) ui.Element {
 		if floating {
-			return a.mediaButton(c, icon, label, active...).Size(30, 30)
+			return viewer.mediaButton(c, icon, label, active...)
 		}
 		return iconButton(c, icon, label, active...)
 	}
 	if floating {
 		p = colors(ui.DarkTheme())
+		navWidth, navGap, actionGap = 74, 10, 10
+		titleSize, titleGap = 13, 3
 	}
-	ui.Row(c).Fill().Padding(0, right, 0, left).AlignItems(ui.Center).DragWindow().Children(func() {
-		ui.Row(c).Width(watchNavigationWidth).Shrink(0).Gap(5).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Fill().Padding(0, right, 0, left).Gap(actionGap).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Row(c).Width(navWidth).Shrink(0).Gap(navGap).AlignItems(ui.Center).Children(func() {
 			back := button(c.Key("watch-back"), iconBack, "返回列表 · Esc")
 			if a.snap {
 				back.Label("").Tooltip("").Role(ui.RoleNone).PassThrough()
@@ -244,9 +249,11 @@ func (a *app) watchHeaderControls(c *ui.Context, left, right, gap float32, float
 				a.fitWindowToVideo(false)
 			}
 		})
-		ui.Box(c).Width(gap).Shrink(0)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-			ui.Text(c, viewer.title).FontSize(13.5).FontWeight(600).TextColor(p.text).SingleLine()
+		if gap > 0 {
+			ui.Box(c).Width(gap).Shrink(0)
+		}
+		ui.Column(c).Grow(1).MinWidth(0).Gap(titleGap).Children(func() {
+			ui.Text(c, viewer.title).FontSize(titleSize).FontWeight(600).TextColor(p.text).SingleLine()
 			var meta []string
 			for _, text := range []string{viewer.targetRoom.Platform.Name(), viewer.targetRoom.Anchor, viewer.targetRoom.Category} {
 				if text != "" {
@@ -309,7 +316,7 @@ func (a *app) watchHeaderControls(c *ui.Context, left, right, gap float32, float
 	})
 }
 
-func (a *app) videoView(c *ui.Context, frame ui.Rect) {
+func (a *app) videoView(c *ui.Context, frame ui.Rect, floatingHeader bool) {
 	if !a.snap {
 		a.takeVideoFrame()
 	}
@@ -389,6 +396,13 @@ func (a *app) videoView(c *ui.Context, frame ui.Rect) {
 		}
 		if a.companion {
 			a.companionHeader(c, opacity)
+		}
+		if floatingHeader {
+			owner := a
+			if a.embedded {
+				owner = a.parent
+			}
+			owner.immersiveHeader(c, a, opacity)
 		}
 		// 绘制层透明，原生视频就在其下；控制层始终位于视频内部。
 		if opacity > .005 {
